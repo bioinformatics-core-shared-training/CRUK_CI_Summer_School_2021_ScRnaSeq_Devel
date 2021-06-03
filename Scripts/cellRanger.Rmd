@@ -1,0 +1,149 @@
+---
+title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
+subtitle: 'cellranger'
+
+author: "Stephane Ballereau"
+output:
+  html_notebook:
+    code_folding: hide
+    toc: yes
+    toc_float: yes
+    number_sections: true
+  html_document:
+    df_print: paged
+    toc: yes
+    number_sections: true
+    code_folding: hide
+  html_book:
+    code_folding: hide
+params:
+  projDir: "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
+  inpDirBit: "AnaWiSce/Ana1"
+  outDirBit: "AnaWiSce/Ana1"
+  bookType: "mk"
+  cacheBool: FALSE
+---
+
+**WORKING DOCUMENT - IN PROGRESS**
+
+<!--
+TODO:
+-->
+
+
+```{r cellranger.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
+cacheBool <- params$cacheBool
+require(knitr)
+opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
+opts_chunk$set(fig.width=7, fig.height=7)
+knitr::opts_chunk$set(dev="CairoPNG")
+```
+
+```{r library_cellRanger}
+library(dplyr)
+```
+
+# Alignment and feature counting {#AliFeatCountTop}
+
+## Introduction
+
+We will use two sets of Bone Marrow Mononuclear Cells (BMMC):
+
+* 'CaronBourque2020': pediatric samples
+* 'Hca': HCA Census of Immune Cells for adult BMMCs
+
+Fastq files were retrieved from publicly available archive (SRA and HCA). 
+
+Sequencing quality was assessed and visualised using fastQC and MultiQC.
+
+Reads were aligned against GRCh38 and features counted using cellranger (v3.1.0).
+
+```{r variables_cellRanger}
+#wrkDir <- "/mnt/scratchb/bioinformatics/baller01/20200511_FernandesM_ME_crukBiSs2020/CaronBourque2020/grch38300"
+#setwd(wrkDir)
+projDir <- params$projDir
+#projDirLink <- "/Users/baller01/MyMount/svr008ssd/20200511_FernandesM_ME_crukBiSs2020"
+projDirLink <- gsub("/ssd/personal/baller01", "/Users/baller01/MyMount/svr008ssd", projDir)
+inpDirBit <- params$inpDirBit # "AnaWiSeurat/Attempt1"
+outDirBit <- params$outDirBit # "AnaWiSeurat/Attempt1"
+plotDir <- "QcPlots"
+
+# eg # cellrangerDirLink <- sprintf("%s/%s/grch38300", projDirLink, "CaronBourque2020")
+```
+
+## 10X cellranger pipeline in brief
+
+Each sample was analysed separately with [cellranger](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger).
+This pipeline "is a set of analysis pipelines that process Chromium single-cell RNA-seq output to align reads, generate feature-barcode matrices and perform clustering and gene expression analysis."
+
+**TODO** Add code to call cellranger
+
+## sample sheet
+
+```{r}
+# CaronBourque2020
+cb_sampleSheetFn <- file.path(projDir, "Data/CaronBourque2020/SraRunTable.txt")
+# Human Cell Atlas
+hca_sampleSheetFn <- file.path(projDir, "Data/Hca/accList_Hca.txt")
+
+# read sample sheet in:
+splShtColToKeep <- c("Run", "Sample.Name", "source_name")
+
+cb_sampleSheet <- read.table(cb_sampleSheetFn, header=T, sep=",")
+hca_sampleSheet <- read.table(hca_sampleSheetFn, header=F, sep=",")
+colnames(hca_sampleSheet) <- "Sample.Name"
+hca_sampleSheet$Run <- hca_sampleSheet$Sample.Name
+hca_sampleSheet$source_name <- "ABMMC" # adult BMMC
+
+sampleSheetCat <- rbind(cb_sampleSheet[,splShtColToKeep], hca_sampleSheet[,splShtColToKeep])
+```
+
+```{r}
+sampleSheetCat %>%
+	#DT::datatable(options = list(dom='t'))
+	DT::datatable(options = list(pageLength = 10))
+```
+
+## 10X cellranger reports for CaronBourque2020
+
+```{r, results = 'asis'}
+#cellrangerDir <- sprintf("%s/%s/grch38300", projDir, "CaronBourque2020")
+#projDirOsx <- "/Users/baller01/MyMount/clust1b/20200511_FernandesM_ME_crukBiSs2020"
+
+# make dir name for each sample of interest
+# with 'Run' column
+
+sampleSheet <- sampleSheetCat %>%
+	filter(! source_name == "ABMMC")
+
+cellrangerDirLink <- sprintf("%s/Data/%s/grch38300", projDirLink, "CaronBourque2020")
+htmlVec <- sprintf("%s/%s/%s/outs/web_summary.html", cellrangerDirLink, sampleSheet$Run, sampleSheet$Run)
+names(htmlVec) <- sampleSheet$Run
+
+for(i in 1:length(htmlVec)){
+	cat("[", names(htmlVec)[i], "](", htmlVec[i],")\n\n")
+}
+
+# TODO: add links to sample sheet and show with DT::datatable
+```
+
+## 10X cellranger reports for HCA's adult BMMCs
+
+```{r, results = 'asis'}
+#cellrangerDir <- sprintf("%s/%s/grch38300", projDir, "CaronBourque2020")
+#projDirOsx <- "/Users/baller01/MyMount/clust1b/20200511_FernandesM_ME_crukBiSs2020"
+
+# make dir name for each sample of interest
+# with 'Run' column
+
+sampleSheet <- sampleSheetCat %>%
+	filter(source_name == "ABMMC")
+
+cellrangerDirLink <- sprintf("%s/Data/%s/grch38300", projDirLink, "Hca")
+htmlVec <- sprintf("%s/%s/%s/outs/web_summary.html", cellrangerDirLink, sampleSheet$Run, sampleSheet$Run)
+names(htmlVec) <- sampleSheet$Run
+
+for(i in 1:length(htmlVec)){
+	cat("[", names(htmlVec)[i], "](", htmlVec[i],")\n\n")
+}
+```

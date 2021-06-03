@@ -1,0 +1,59 @@
+---
+title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
+subtitle: 'data set integration - PBMMC and ETV6-RUNX1'
+
+output:
+  html_notebook:
+    code_folding: hide
+    toc: yes
+    toc_float: yes
+    number_sections: true
+  html_document:
+    df_print: paged
+    toc: yes
+    number_sections: true
+    code_folding: hide
+  html_book:
+    code_folding: hide
+params:
+  projDir: "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
+  dirRel: ".."
+  inpDirBit: "AnaWiSce/Ana1"
+  outDirBit: "AnaWiSce/Ana1"
+  bookType: "mk"
+  cacheBool: FALSE
+  setName: "caron"
+  setSuf: "_5hCellPerSpl"
+  splSetToGet: "PBMMC,ETV6-RUNX1"
+---
+
+```{r setup_dsi_PBMMC_ETV6-RUNX1_5hcps, include=FALSE, echo=FALSE, dev="CairoPNG"}
+options(bitmapType='cairo')
+knitr::opts_chunk$set(dev="CairoPNG")
+```
+
+```{r variables_dsi_PBMMC_ETV6-RUNX1_5hcps}
+#qcPlotDirBit <- "NormPlots"
+#setNameUpp <- "Caron"
+projDir <- params$projDir
+dirRel <- params$dirRel
+outDirBit <- params$outDirBit
+cacheBool <- params$cacheBool
+```
+
+```{r libraries_dsi_PBMMC_ETV6-RUNX1_5hcps}
+library(knitr)
+```
+
+```{r knit_expand_dsi_PBMMC_ETV6-RUNX1_5hcps, include=TRUE, eval=TRUE}
+isChild <- "yes" # TRUE
+src <- lapply(c("_5hCellPerSpl"),
+	      function(setSuf, isChild) {
+		      knit_expand(file = "dataSetIntegration_PBMMC_ETV6-RUNX1.Rmd")
+	      })
+```
+
+`r #print(src)`
+
+`r knit(text = unlist(src))`
+

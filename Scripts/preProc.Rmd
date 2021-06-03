@@ -1,0 +1,1374 @@
+---
+title: "CRUK CI Summer School 2021 - introduction to single-cell RNA-seq analysis"
+subtitle: 'Quality Control'
+author: "Stephane Ballereau, Ashley Sawle"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    number_sections: true
+    code_folding: hide
+  html_notebook:
+    code_folding: hide
+    toc: yes
+    toc_float: yes
+    number_sections: true
+---
+
+# Quality Control {#PreProcTop}
+
+```{r setup, echo=FALSE, include=FALSE, message=FALSE}
+library(DT)
+library(knitr)
+opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=TRUE)
+opts_chunk$set(fig.width=7, fig.height=7)
+opts_chunk$set(dev="CairoPNG")
+set.seed(123)
+```
+
+## Introduction
+
+<!--
+OSCA chapter 6 Quality Control
+-->
+
+We will use two sets of Bone Marrow Mononuclear Cells (BMMC):
+
+* 'CaronBourque2020': pediatric samples
+* 'Hca': HCA Census of Immune Cells for adult BMMCs
+
+Fastq files were retrieved from publicly available archive (SRA and HCA). 
+
+Sequencing quality was assessed and visualised using fastQC and MultiQC.
+
+Reads were aligned against GRCh38 and features counted using cellranger (v3.1.0).
+
+We will now check the quality of the data further:
+
+* mapping quality and amplification rate
+* cell counts
+* distribution of keys quality metrics
+
+We will then:
+
+* filter genes with very low expression
+* identify low-quality cells
+* filter and/or mark low quality cells
+
+<!-- TODO:
+- add references and/or links
+- add code used to fetch the data or point to script or have chapter for retrieval+QC and for cellranger
+-->
+
+## Load packages
+
+```{r libraries_preProc}
+library(SingleCellExperiment)
+library(Matrix)
+library(DropletUtils)
+library(scater)
+library(scran)
+library(igraph)
+library(AnnotationHub)
+library(irlba)
+library(tidyverse)
+library(patchwork)
+library(ggvenn)
+```
+
+* SingleCellExperiment - to store the data
+* Matrix - to deal with sparse and/or large matrices
+* DropletUtils - utilities for the analysis of droplet-based, inc. cell counting
+* scater - QC
+* scran - normalisation
+* igraph - graphs 
+* AnnotationHub - for gene annotation
+* irlba - for faster PCA
+
+## Sample sheet
+
+We will load both the Caron and Hca data sets. We have already prepared a sample
+meta data table that relates the sample/run ID to the sample group.
+
+```{r samplesheet_preProc, message=FALSE}
+samplesheet <- read_tsv("Course_Materials/Data/sample_sheet.tsv")
+```
+
+```{r samplesheet_display_preProc, echo=FALSE}
+samplesheet %>%
+	as.data.frame() %>%
+	datatable(rownames = FALSE, options = list(dom="tpl", nrows=20))
+```
+
+## Load the data
+
+We will load the data for the **SRR9264343**. To load the data from the 
+CellRanger outputs, we need to use the function `read10xCounts` from the
+`DropletUtils` package. We pass the funtion the location of the directory 
+containing the counts matrix, cell barcodes and features (genes). In this case
+we will load the raw matrix.
+
+```{r example_load}
+sample.path <- "Course_Materials/CellRanger_Outputs/SRR9264343/outs/raw_feature_bc_matrix/"
+sce.raw <- read10xCounts(sample.path, col.names=TRUE)
+sce.raw
+```
+
+## The `SingleCellExperiment` object
+
+The data has been loaded as a
+[SingleCellExperiment](https://bioconductor.org/packages/SingleCellExperiment/)
+object. The details of the structure of the object are described
+[here](https://www.nature.com/articles/s41592-019-0654-x). In summary, it stores
+various data types in a single object. Currently it will contain:
+
+* the count matrix
+* feature (gene) annotation
+* droplet annotation
+
+Later we will also add the outcomes of downstream analysis such as
+dimensionality reduction.
+
+### The counts matrix
+
+Compared to bulk RNA-seq, Single-cell RNA-seq data is sparse, i.e. there many
+missing values or zeroes.  This is particularly true with droplet-based methods
+such as 10X, mostly because:
+
+* any given cell does not express each gene
+* the library preparation does not capture all transcript the cell does express
+* the sequencing depth per cell is far lower and so fewer of the expressed genes
+are detected
+
+We can access the counts matrix with `counts`. Given the large number of
+droplets in a sample, count matrices can be large. They are however very sparse
+and can be stored in a 'sparse matrix' that only stores non-zero values, for
+example a `dgCMatrix` object. 
+
+```{r countsMatrix}
+counts(sce.raw)[1:10, 1:10]
+```
+
+Number of genes (rows) and droplets (columns) in the count matrix:
+
+```{r example_dim}
+dim(counts(sce.raw))
+```
+
+### Features
+
+Details about the "features" (in this case genes) can by accessed using the 
+`rowData` function. Currently it contains the ensembl gene ID and the gene 
+symbol, which have been derived from the 10x reference used by CellRanger. It
+also contains a "Type" column, which tells us what sort of data we are looking
+at; in this case it is "Expression" for gene expression. If we wish to, we can
+add further annotation to the features by adding extra columns to this data 
+frame.
+
+```{r example_row}
+head(rowData(sce.raw))
+```
+
+### Droplet annotation
+
+Details about the droplets can be accessed using `colData`. Currently it
+contains the sample names and droplet Barcodes. As with the feature data, we can
+add additional information about each droplet, e.g. counts of genes or the
+percentage of mitochondrial genes, to this data frame. The rows of this table 
+correspond to the data in the columns of the count matrix; the row names of this
+table will match the column names of the counts matrix - currently these are the 
+droplet barcodes.
+
+```{r example_col}
+head(colData(sce.raw))
+```
+
+```{r}
+colnames(as.matrix(counts(sce.raw)[1:2,1:6]))
+```
+
+
+```{r, echo=FALSE}
+ncolRaw <- ncol(sce.raw)
+rm(sce.raw)
+```
+
+
+## Load filtered matrices
+
+In the previous example we loaded the _raw_ matrix, in fact we are going to work
+with the _filtered_ matrix, which only contains droplets called as cells by 
+CellRanger. After this we will apply some additional QC steps to these droplets
+in order to remove any that we are not confident contain a real cell or those 
+that we think contain multiple cells.
+
+We can load multiple samples at the same time using the `read10xCounts` command.
+This will create a single object containing the data for multiple samples. We
+can then QC and filter the samples in conjunction. As we will see later, this is 
+not always optimal when samples have been processed in multiple batches.
+
+As an example, we will begin by loading 2 samples from each sample group. This
+time we will start with the filtered counts matrix, which only contains cells
+called by CellRanger. We pass the `read10xCounts` a named vector containing the
+paths to the filtered counts matrices that we wish to load; the names of the
+vector will be used as the sample names in the Single Cell Experiment object.
+
+```{r make_file_list}
+list_of_files <- samplesheet %>%
+    group_by(SampleGroup) %>% 
+    slice(1:2) %>%
+    mutate(File=str_c("Course_Materials/CellRanger_Outputs/", 
+                      Sample,
+                      "/outs/filtered_feature_bc_matrix")) %>%
+    pull(File, Sample)
+list_of_files
+```
+    
+```{r load_data_sets}           
+sce <- read10xCounts(list_of_files, col.names=TRUE)
+sce
+```
+
+If you compare the dimensions of this object to those of the raw object above, 
+you will see that whereas the raw object that **`r ncolRaw`** columns, the 
+filtered object only has **`r ncol(sec)`** columns.
+
+## Modify the droplet annotation
+
+Currently, the droplet annotation in `colData` slot of the `sce` object has two
+columns: "Sample" and "Barcode". The "Sample" is the name of the sample as we
+provided it to `read10xCounts`, the "Barcode" is the barcode for the droplet 
+(cell). 
+
+```{r}
+colData(sce)
+```
+
+The "Barcode" column contains the cell/droplet barcode and comprises the actual
+sequence and a 'group ID', e.g. AAACCTGAGAAACCAT-1. The 'group ID' helps
+distinguish cells from different samples that have identical barcode sequences,
+however, as each sample was processed separately with CellRanger, the group ID
+is set to 1 in all data sets. Some of our downstream tools will use this column
+to identify different droplets, so we will need modify these to be unique; we 
+can just use the modified rownames.
+
+In order to distinguish droplets that originate from different samples but have
+the same barcode, `read10XCounts` has added the "index" of the sample in
+the `list_of_files` object (1-10) to the beginning of the cell barcode in the
+row names of the droplet annotation table and the column names of the count 
+matrix.
+
+We can also add information about the sample group to the droplet annotation.
+
+```{r dataSets_addSampleSheet}
+colData(sce) <- colData(sce) %>% 
+    as.data.frame() %>%
+    rownames_to_column("RowName") %>% 
+    mutate(SampleNum = str_extract(RowName, "^[0-9]+")) %>%
+    mutate(Barcode = str_replace(Barcode, "1$", SampleNum)) %>%
+    left_join(samplesheet, by="Sample") %>%
+    select(-SampleNum) %>%
+    column_to_rownames("RowName") %>% 
+    DataFrame()
+```
+
+```{r}
+colData(sce)
+```
+
+Let's save the object for future reference.
+
+```{r dataSets_writeRds, eval=FALSE}
+saveRDS(sce, "Course_Materials/results/sce_pooled_samples.rds")
+```
+
+
+```{r dataSets_writeRds, echo=FALSE, eval=FALSE}
+sce <- readRDS("Course_Materials/results/sce_pooled_samples.rds")
+```
+
+## Properties of scRNA-seq data
+
+### Number of genes detected per cell
+
+The number and identity of genes detected in a cell vary greatly across cells:
+the total number of genes detected across all cells is far larger than the
+number of genes detected in each cell.
+
+```{r echo=FALSE}
+genesPerCell <- colSums(counts(sce) > 0)
+```
+
+For the current set of samples the total number of genes detected across cells
+was `r sum(rowSums(counts(sce)) > 0)` out of `r nrow(sce)` gene in the 
+reference, but if we look at the number of genes 
+detected in each cell, we can see that this ranges from `r min(genesPerCell)` to
+`r max(genePerCell)`, with a median of `r median(genePerCell)`.
+
+```{r properties_distribNbGenesDetected}
+genesPerCell <- colSums(counts(sce) > 0)
+summary(genesPerCell)
+
+plot(density(genesPerCell), main="", xlab="Genes per cell")
+```
+
+### Total UMI for a gene versus the number of times detected
+
+If we compare the number of UMI's assigned to an individual gene to the number
+of cells in which that gene is detected, we can see that highly expressed genes
+tend to be detected in a higher proportion of cells than lowly expressed genes.
+
+```{r}
+set.seed(232)
+tmpCounts <- counts(sce)[,sample(ncol(sce), 1000)]
+
+plot(rowSums(tmpCounts),
+     rowMeans(tmpCounts > 0),
+     log = "x",
+     xlab="total number of UMIs",
+     ylab="proportion of cells expressing the gene"
+)
+rm(tmpCounts)
+```
+### Distribution of counts for a gene across cells
+
+We could also look at the distribution of counts for individual genes across all
+cells. The plot below shows this distribution for the top 20 genes detected.
+
+```{r}
+#Compute the relative expression of each gene per cell
+rel_expression <- t( t(counts(sce)) / Matrix::colSums(counts(sce))) * 100
+rownames(rel_expression) <- rowData(sce)$Symbol
+most_expressed <- sort(Matrix::rowSums( rel_expression ),T)[20:1]
+plot_data <- as.matrix(t(rel_expression[names(most_expressed),]))
+
+boxplot(plot_data, cex=0.1, las=1, xlab="% total count per cell", horizontal=TRUE)
+```
+
+```{r echo=FALSE}
+rm(rel_expression, plot_data)
+```
+
+### Undetected genes
+
+Although the count matrix has `r nrow(sce)` genes, many of these will not have
+been detected in any droplet.
+
+```{r detected_genes}
+detected_genes <- rowSums(counts(sce)) > 0
+table(detected_genes)
+```
+
+About a fifth of the genes have not been detected in any droplet. We can 
+remove these before proceeding in order to reduce the size of the single cell
+experiment object.
+
+```{r remove_undetected_genes}
+sce <- sce[detected_genes,]
+```
+
+
+## Quality control
+
+<!-- https://osca.bioconductor.org/quality-control.html -->
+
+The cell calling performed by CellRanger does not always retain only droplets
+containing cells. Poor-quality cells, or rather droplets, may be caused
+by cell damage during dissociation or failed library preparation. They usually
+have low UMI counts, few genes detected and/or high mitochondrial content. The
+presence of these droplets in the data set may affect normalisation, assessment
+of cell population heterogeneity, clustering and trajectory:
+
+* Normalisation: Contaminating genes, 'the ambient RNA', are detected at low
+levels in all libraires. In low quality libraries with low RNA content, scaling
+will increase counts for these genes more than for better-quality cells,
+resulting in their apparent upregulation in these cells and increased variance
+overall.  
+* Cell population heterogeneity: variance estimation and dimensionality
+reduction with PCA where the first principal component will be correlated with
+library size, rather than biology.  
+* Clustering and trajectory: higher mitochondrial and/or nuclear RNA content may
+cause low-quality cells to cluster separately or form states or trajectories
+between distinct cell types.  
+
+In order to remove or reduce the impact of poor-quality droplets on our 
+downstream analysis we will attempt to filter them out using some QC metrics.
+The three principle means of doing this are to apply thresholds for inclusion
+on three characteristics:
+
+* The **library size** defined as the total sum of UMI counts across all genes;
+  cells with small library sizes are considered to be of low quality as the RNA
+  has not been efficiently captured, i.e. converted into cDNA and amplified,
+  during library preparation.
+
+* The **number of expressed genes in each cell** defined as the number of genes
+  with non-zero counts for that cell; any cell with very few expressed genes is
+  likely to be of poor quality as the diverse transcript population has not
+  been successfully captured.
+
+* The **proportion of UMIs mapped to genes in the mitochondrial genome**; high
+  proportions are indicative of poor-quality cells, possibly because of loss of
+  cytoplasmic RNA from perforated cells (the reasoning is that mitochondria are
+  larger than individual transcript molecules and less likely to escape through
+  tears in the cell membrane).
+
+## Add per cell QC metrics
+
+The [scater](https://bioconductor.org/packages/3.11/bioc/html/scater.html)
+function `addPerCellQC()` will compute various per droplet QC metrics and will
+add this information as new columns in the droplet annotation (`colData`) of the
+single cell object.
+
+### Annotate genes
+
+In order to assess the percentage of mitochondrial UMIs, we will need to be
+able to identify mitochondrial genes. The simplest way to do this is to annotate
+the genes with their chromosome of origin.
+
+There are many ways we could annotate our genes in R. We will use 
+`AnnotationHub`.
+
+```{r annotate_genes}
+ah <- AnnotationHub()
+ens.mm.93 <- query(ah, c("Homo sapiens", "EnsDb", 93))[[1]] 
+
+genes <- rowData(sce)$ID
+gene_annot <- AnnotationDbi::select(ens.mm.93, 
+                              keys = genes,
+                              keytype = "GENEID",
+                              columns = c("GENEID", "SEQNAME")) %>%
+    set_names(c("ID", "Chromosome"))
+rowData(sce) <- merge(rowData(sce), gene_annot, by = "ID", sort=FALSE)
+rownames(rowData(sce)) <- rowData(sce)$ID
+
+rowData(sce)
+```
+
+
+```{r dataSets_writeRds2, eval=FALSE}
+saveRDS(sce, "Course_Materials/results/sce_pooled_samples_annot.rds")
+```
+
+
+```{r dataSets_writeRds2, echo=FALSE, eval=FALSE}
+sce <- readRDS("Course_Materials/results/sce_pooled_samples_annot.rds")
+```
+
+Number of genes per chromosome, including 13 on the mitochondrial genome:
+
+```{r qc_mitoGenes}
+rowData(sce) %>%
+	as.data.frame() %>%
+	count(Chromosome, name = "Number of Genes") %>%
+	datatable(rownames = FALSE)
+```
+<!--
+Calculate and store QC metrics for genes with addPerFeatureQC() and for cells
+with addPerCellQC().
+
+```{r qc_addPerFeatureQC, eval=addQcBool}
+sce <- addPerFeatureQC(sce)
+head(rowData(sce)) %>%
+	as.data.frame() %>%
+	datatable(rownames = FALSE)
+```
+
+-->
+
+We can add the per cell QC metrics to the droplet annotation using the function
+`addPerCellQC`. In order to get the percentage of mitochondrial UMIs in each
+cell, we need to pass the function a vector indicating which genes are
+mitochondrial.
+
+```{r qc_addPerCellQC}
+is.mito <- which(rowData(sce)$Chromosome=="MT")
+
+sce <- addPerCellQC(sce, subsets=list(Mito=is.mito))
+```
+
+The function has added six columns to the droplet annotation:
+
+* **sum**: total UMI count
+* **detected**: number of features (genes) detected
+* **subsets_Mito_sum**: number of UMIs mapped to mitochondrial transcripts
+* **subsets_Mito_detected**: number of mitochondrial genes detected
+* **subsets_Mito_percent**: percentage of reads mapped to mitochondrial transcripts
+* **total**: also the total UMI count
+
+We will use **sum**, **detected**, and **subsets_Mito_percent** to further
+filter the cells.
+
+```{r qc_addPerCellQC, eval=addQcBool}
+head(colData(sce)) %>%
+	as.data.frame() %>%
+	datatable(rownames = FALSE)
+```
+
+### QC metric distribution
+
+Before moving on to do the actual cell filtering, it is always a good idea to
+explore the distribution of the metrics across the droplets.
+
+First let's look across all cells in the data set.
+
+```{r qc_metricDistrib_twoHist, fig.width=12, fig.height=5}
+par(mfrow=c(1, 3))
+hist(log10(sce$sum),
+     breaks=20,
+     col="grey80",
+     xlab="log10(Total UMI count)",
+     main="")
+hist(sce$detected,
+     breaks=20,
+     col="grey80",
+     xlab="Total genes detected",
+     main="")
+hist(sce$subsets_Mito_percent,
+     breaks=20,
+     col="grey80",
+     xlab="Proportion of reads in mitochondrial genes",
+     main="")
+```
+
+This gives us an overview of all the cells in the experiment, but to get a
+better idea we need to have a look at these distributions on a per sample basis.
+The `scater` function `plotColData` provides a simple interface for generating
+these plots.
+
+```{r qc_metricDistrib_plotColData_write, out.width=80%}
+p1 <- plotColData(sce, x="Sample", y="sum",other_fields="SampleGroup") + 
+        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+        scale_y_log10() + 
+        ggtitle("Total count")
+p2 <- plotColData(sce, x="Sample", y="detected", other_fields="SampleGroup") + 
+        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+        scale_y_log10() + 
+        ggtitle("Detected features")
+p3 <- plotColData(sce, x="Sample", y="subsets_Mito_percent", other_fields="SampleGroup") + 
+        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") +
+        ggtitle("Mito percent")
+
+p1 / p2 / p3
+```
+
+A scatter plot shows the extent to which library size and numbers of genes
+detected are correlated.
+
+```{r, fig.width=10, fig.height=6}
+ggplot(data.frame(colData(sce)),
+             aes(x=sum,
+                 y=detected,
+                 col=subsets_Mito_percent)) +
+  geom_point() + 
+    facet_wrap(~SampleGroup)
+```
+
+## Identification of low-quality cells with adaptive thresholds
+
+One can use hard threshold for the library size, number of genes detected and
+mitochondrial content. These will however vary across runs. It may therefore be
+preferable to rely on outlier detection to identify cells that markedly differ
+from most cells.
+
+We saw above that the distribution of the QC metrics is close to Normal. Hence,
+we can detect outliers using the median and the median absolute deviation (MAD)
+from the median (not the mean and the standard deviation that both are sensitive
+to outliers).
+
+For a given metric, an outlier value is one that lies over some number of MADs
+away from the median. A cell will be excluded if it is an outlier in the part of
+the range to avoid, for example low gene counts, or high mitochondrial content.
+For a normal distribution, a threshold defined with a distance of 3 MADs from
+the median retains about 99% of values.
+
+The `scater` function `isOutlier` can be used to detect outlier cells based on
+any metric in the `colData` table. It returns a boolean vector which identifies
+outliers. By default it will mark any cell that is 3 MADS in either direction
+from the median as an outlier.
+
+### Library size
+
+With library size we wish to identify outliers that have very low library sizes,
+this indicates that the droplets either contain poor quality cells, perhaps
+damaged or dying, or do not contain a cell at all.
+
+The library size distribution tends to have a long tail to the right (small
+numbers of cells with very high UMI counts). We therefore log transform the
+library size in order to the make the distribution closer to normal. This 
+also improves the resolution of the smaller library sizes and ensures that we do
+not end up with negative threshold.
+
+```{r adapThresTab_libSize}
+low_lib_size <- isOutlier(sce$sum, log=TRUE, type="lower")
+table(low_lib_size)
+```
+
+This has excluded `r sum(low_lib_size)` cells. We can view the threshold
+values to check that they seem reasonable.
+
+```{r adapThresVal_libSize}
+attr(low_lib_size, "thresholds")[1]
+```
+
+We can view the effect of the filtering using `plotColData`.
+
+```{r , out.width=80%}
+colData(sce)$low_lib_size <- low_lib_size
+plotColData(sce, 
+            x="Sample", 
+            y="sum",
+            other_fields="SampleGroup", 
+            colour_by = "low_lib_size") + 
+    facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+    scale_y_log10() + 
+    labs(y = "Total count", title = "Total count") +
+    guides(colour=guide_legend(title="Discarded"))
+```
+
+
+### Number of genes
+
+As with the library size, we will log tranform the number of genes detected 
+prior to filtering using the median absolute deviation.
+
+````{r adapThresTab_detected}
+low_n_features <- isOutlier(sce$detected, log=TRUE, type="lower")
+table(low_n_features)
+```
+
+This has filter out 444 cells. The threshold value was:
+
+```{r adapThresVal_detected}
+attr(low_n_features, "thresholds")[1]
+```
+
+We can view the effect of the filtering using `plotColData`.
+
+```{r , out.width=80%}
+colData(sce)$low_n_features <- low_n_features
+plotColData(sce, 
+            x="Sample", 
+            y="detected",
+            other_fields="SampleGroup", 
+            colour_by = "low_n_features") + 
+    facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+    scale_y_log10() + 
+    labs(y = "Genes detected", title = "Genes detected") +
+    guides(colour=guide_legend(title="Discarded"))
+```
+
+### Mitochondrial content
+
+For the mitochondrial content the exclusion zone is in the higher part of the 
+distribution. For this reason we do not need to worry about log transforming the
+data as want to remove the long right hand tail anyway.
+
+```{r adapThresTab_mito}
+high_Mito_percent <- isOutlier(sce$subsets_Mito_percent, type="higher")
+table(high_Mito_percent)
+```
+
+This has removed 5422 cells in total. The upper threshold value:
+
+```{r adapThresVal_mito}
+attr(high_Mito_percent, "thresholds")[2]
+```
+
+We can view the effect of the filtering using `plotColData`.
+
+```{r , out.width=80%}
+colData(sce)$high_Mito_percent <- high_Mito_percent
+plotColData(sce, 
+            x="Sample",
+            y="subsets_Mito_percent",
+            other_fields="SampleGroup",
+            colour_by = "high_Mito_percent") + 
+    facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+    labs(y = "Percentage mitochondrial UMIs",
+         title = "Mitochondrial UMIs") +
+    guides(colour=guide_legend(title="Discarded"))
+```
+
+### Summary of discarded cells
+
+Having applied each of the three thresholds separately, we can now combind them
+to see how many droplets in total we will be excluding.
+
+```{r adapThres_summary}
+tibble(`Library Size`=sum(low_lib_size),
+       `Genes detected`=sum(low_n_features),
+       `Mitochondrial UMIs`=sum(high_Mito_percent),
+       Total=sum(low_lib_size | low_n_features | high_Mito_percent)) %>% 
+    datatable(rownames = FALSE, options = list(dom="t"))
+```
+Clearly there is some overlap, as we would expect. We can visualise this with a
+Venn diagram.
+
+```{r, fig.width=6, fig.height=6}
+colData(sce) %>% 
+    as.data.frame() %>% 
+    dplyr::select(`Library Size`=low_lib_size,
+           `Genes detected`=low_n_features,
+           `Mitochondrial UMIs`=high_Mito_percent) %>% 
+    ggvenn(show_percentage = FALSE)
+```
+
+### All three filter steps at once
+
+The three steps above may be run in one go using the `quickPerCellQC` function.
+
+```{r adapThres_quickPerCellQC}
+reasons <- quickPerCellQC(colData(sce),
+			  percent_subsets=c("subsets_Mito_percent"))
+
+as.data.frame(reasons) %>%
+    summarise(across(everything(), sum)) %>% 
+    dplyr::select(`Library Size`=low_lib_size,
+                  `Genes detected`=low_n_features,
+                  `Mitochondrial UMIs`=high_subsets_Mito_percent,
+                  Total=discard) %>% 
+    datatable(rownames = FALSE, options = list(dom="t"))
+```
+
+### Assumptions
+
+Data quality depends on the tissue analysed, some being difficult to dissociate,
+e.g. brain, so that one level of QC stringency will not fit all data sets.
+
+Filtering based on QC metrics as done here assumes that these QC metrics are not
+correlated with biology. This may not necessarily be true in highly heterogenous
+data sets where some cell types represented by good-quality cells may have low
+RNA content or high mitochondrial content.
+
+## Considering experimental factors when filtering
+
+The two data sets analysed here may have been obtained in experiments with
+different settings, such as cell preparation or sequencing depth. Such
+differences between these two batches would affect the adaptive thesholds
+discussed above - that is, the distributions of the metrics may be different in
+each batch and so we should really apply the adaptive thresholding separately
+for each batch. The `quickPerCellQC` has a "batch" argument that allows us to 
+specify with samples belong to which batches. The batches are then filtered
+independently.
+
+We will first need to add a "batch" column to the droplet annotation that 
+identifies samples from the Caron paper and samples from the HCA.
+
+```{r quickPerCellQC_batch_compute}
+sce$setName <- ifelse(str_detect(sce$SampleGroup, "ABMMC"), "HCA", "Caron")
+
+batch.reasons <- quickPerCellQC(colData(sce),
+                                percent_subsets=c("subsets_Mito_percent"),
+                                batch=sce$setName)
+
+as.data.frame(batch.reasons) %>%
+    summarise(across(everything(), sum)) %>% 
+    dplyr::select(`Library Size`=low_lib_size,
+                  `Genes detected`=low_n_features,
+                  `Mitochondrial UMIs`=high_subsets_Mito_percent,
+                  Total=discard) %>% 
+    datatable(rownames = FALSE, options = list(dom="t"))
+```
+
+The table below shows how the thresholds for each metric differ between the
+batch-wise analysis and the analysis using all samples.
+
+```{r}
+all.thresholds <- tibble(`Batch`="All",
+       `Library Size`=attr(reasons$low_lib_size, "thresholds")[1],
+       `Genes detected`=attr(reasons$low_n_features, "thresholds")[1],
+       `Mitochondrial UMIs`=attr(reasons$high_subsets_Mito_percent, "thresholds")[2])
+
+
+tibble(`Batch`=names(attr(batch.reasons$low_lib_size, "thresholds")[1,]),
+       `Library Size`=attr(batch.reasons$low_lib_size, "thresholds")[1,],
+       `Genes detected`=attr(batch.reasons$low_n_features, "thresholds")[1,],
+       `Mitochondrial UMIs`=attr(batch.reasons$high_subsets_Mito_percent, "thresholds")[2,]) %>% 
+    bind_rows(all.thresholds) %>% 
+    mutate(across(where(is.numeric), round, digits=2)) %>% 
+    datatable(rownames = FALSE, options = list(dom="t"))
+```
+
+Let's replace the columns in the droplet annotation with these new filters.
+
+```{r quickPerCellQC_batch_replace}
+sce$low_lib_size <- batch.reasons$low_lib_size
+sce$low_n_features <- batch.reasons$low_n_features
+sce$high_Mito_percent <- batch.reasons$high_subsets_Mito_percent
+sce$discard <- batch.reasons$discard
+```
+
+We can visualise how the new filters look using violin plots.
+
+```{r, fig.width=12, fig.height=12}
+p.lib <- plotColData(sce, 
+            x="Sample", 
+            y="sum",
+            other_fields="SampleGroup", 
+            colour_by = "low_lib_size") + 
+        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+        scale_y_log10() + 
+        labs(y = "Total count", title = "Total count") +
+        guides(colour=guide_legend(title="Discarded"))
+
+
+p.ng <- plotColData(sce, 
+            x="Sample", 
+            y="detected",
+            other_fields="SampleGroup", 
+            colour_by = "low_n_features") + 
+        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+        scale_y_log10() + 
+        labs(y = "Genes detected", title = "Genes detected") +
+        guides(colour=guide_legend(title="Discarded"))
+
+
+p.mt <- plotColData(sce, 
+            x="Sample", 
+            y="subsets_Mito_percent",
+            other_fields="SampleGroup", 
+            colour_by = "high_Mito_percent") + 
+        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+        labs(y = "Percentage mitochondrial UMIs",
+             title = "Mitochondrial UMIs") +
+        guides(colour=guide_legend(title="Discarded"))
+
+p.lib / p.ng / p.mt
+```
+There are some distinct differences, most noticeable is that there is now no
+filtering using library size. The venn diagrams below show how the number of
+discarded droplets in HCA and Caron have changed for each filter in comparison
+to when the MAD filtering was applied across all samples.
+
+```{r, fig.width=12, fig.height=8}
+libDat <- tibble(`All together`=reasons$low_lib_size, 
+                 `By batch`=batch.reasons$low_lib_size,
+                 Batch=sce$setName)
+    
+ph1 <- libDat %>% 
+    dplyr::filter(Batch=="HCA") %>% 
+    ggvenn(show_percentage = FALSE) +
+        labs(title="Library Size - HCA")
+pc1 <- libDat %>% 
+    dplyr::filter(Batch=="Caron") %>% 
+    ggvenn(show_percentage = FALSE) +
+        labs(title="Library Size - Caron")
+
+nGenDat <- tibble(`All together`=reasons$low_n_features, 
+                  `By batch`=batch.reasons$low_n_features,
+                 Batch=sce$setName)
+ph2 <- nGenDat %>% 
+    dplyr::filter(Batch=="HCA") %>% 
+        ggvenn(show_percentage = FALSE) +
+            labs(title="Genes detected - HCA")
+pc2 <- nGenDat %>% 
+    dplyr::filter(Batch=="Caron") %>% 
+           ggvenn(show_percentage = FALSE) +
+            labs(title="Genes detected - Caron")
+
+
+mitDat <- tibble(`All together`=reasons$high_subsets_Mito_percent, 
+       `By batch`=batch.reasons$high_subsets_Mito_percent,
+                 Batch=sce$setName)
+ph3 <- mitDat %>% 
+    dplyr::filter(Batch=="HCA") %>% 
+        ggvenn(show_percentage = FALSE) +
+            labs(title="Mitochondrial UMIs - HCA")
+pc3 <- mitDat %>% 
+    dplyr::filter(Batch=="Caron") %>% 
+           ggvenn(show_percentage = FALSE) +
+            labs(title="Mitochondrial UMIs - Caron")
+
+(pc1 + pc2 + pc3) / (ph1 + ph2 + ph3)
+```
+
+The most striking difference is in the filtering of the Caron data by library
+size. As we can see from the violin plots the ABMMC samples from the HCA have a
+radically different library size distribution to the Caron samples, with all
+cells having > 1000 UMIs. When we applied the adaptive filters across all
+samples, these two samples caused the MADs to be distorted and resulted in a
+threshold that was inappropriately high for the Caron samples.
+
+## QC filtering using PCA
+
+In the previous approach we used the three metrics in isolation to filter
+droplets. Another approach is to combine the three metrics in a single filtering
+step. One way to do this is to perform a principal components analysis (PCA) and
+use this to detect outliers. The `scater` function `runColDataPCA` can be used
+to perform the PCA and detect outliers. Here we will use the same three metrics
+as before: library size, the number of genes detected and the mitochondrial
+content.
+
+```{r}
+sce <- runColDataPCA(sce, 
+                     variables=list("sum", "detected", "subsets_Mito_percent"),
+                     outliers=TRUE)
+```
+
+This has added the results of the principle component analysis into a new slot
+in the SingleCellExperiment object specifically for holding the results of
+dimension reduction transformations such as PCA, t-SNE and UMAP. The results
+can be accessed using the `reducedDim` function.
+
+```{r}
+head(reducedDim(sce))
+```
+
+It has also added a column "outlier" to the `colData`, which specifies the 
+droplets that have been identified as outliers.
+
+```{r}
+summary(sce$outlier)
+```
+
+As with the adaptive thresholds above, this method should not be applied across
+batches or samples with differing distributions in the metrics or it will 
+exclude many good quality cells.
+
+These types of approach can provide more power for detecting outliers as they 
+are looking at patterns across multiple metrics, however, it can be difficult to
+interpret the reason why any particular droplet has been excluded. 
+
+### Other diagnostic plots
+
+Mitochondrial content against library size:
+
+```{r}
+plotColData(sce, x="sum", y="subsets_Mito_percent", colour_by="discard")
+```
+
+```{r}
+sp <- ggplot(data.frame(colData(sce)),
+	     aes(x=sum, y=subsets_Mito_percent, col=discard)) +
+  geom_point(size = 0.05, alpha = 0.7) +
+  geom_density_2d(size = 0.5, colour = "blue") +
+  guides(colour = guide_legend(override.aes = list(size=1, alpha=1))) +
+  theme(legend.position="bottom")
+#sp
+ggExtra::ggMarginal(sp)
+```
+
+Mind distributions:
+
+```{r}
+sp + facet_wrap(~source_name)
+```
+
+### Filter low-quality cells out
+
+We will now exclude poor-quality cells.
+
+```{r sce_qc_ditch}
+scePreQc <- sce
+sce <- scePreQc[,!scePreQc$discard]
+sce
+```
+
+We also write the R object to file to use later if need be.
+
+```{r sce_qc_write, eval=saveRds}
+# Write object to file
+tmpFn <- sprintf("%s/%s/Robjects/sce_postQc.Rds", projDir, outDirBit)
+saveRDS(sce, tmpFn)
+```
+
+```{r sce_qc_read, eval=!saveRds}
+# Read object in:
+tmpFn <- sprintf("%s/%s/Robjects/sce_postQc.Rds",
+		 projDir, outDirBit)
+sce <- readRDS(tmpFn)
+```
+
+## Novelty
+
+The number of genes per UMI for each cell informs on the level of sequencing saturation achieved ( [hbctraining](https://hbctraining.github.io/In-depth-NGS-Data-Analysis-Course/sessionIV/lessons/SC_quality_control_analysis.html)). For a given cell, as sequencing depth increases each extra UMI is less likely to correspnf to a gene not already detected in that cell. Cells with small library size tend to have higher overall 'novelty' i.e. they have not reached saturation for any given gene. Outlier cell may have a library with low complexity. This may suggest the some cell types, e.g. red blood cells. The expected novelty is about 0.8.
+
+Here we see that some PBMMCs have low novelty, ie overall fewer genes were detected for an equivalent number of UMIs in these cells than in others.
+
+```{r novelty_scat}
+p <- colData(sce) %>%
+  data.frame() %>%
+  ggplot(aes(x=sum, y=detected, color=subsets_Mito_percent)) + 
+  geom_point() + 
+  stat_smooth(method=lm) +
+  scale_x_log10() + 
+  scale_y_log10() + 
+  geom_vline(xintercept = 800) +
+  facet_wrap(~source_name)
+p
+
+# write plot to file
+
+tmpFn <- sprintf("%s/%s/%s/novelty_scat.png",
+		 projDir, outDirBit, qcPlotDirBit)
+ggsave(plot=p, file=tmpFn, type = "cairo-png")
+
+# Novelty
+# the number of genes per UMI for each cell,
+# https://hbctraining.github.io/In-depth-NGS-Data-Analysis-Course/sessionIV/lessons/SC_quality_control_analysis.html
+
+# Add number of UMIs per gene for each cell to metadata
+colData(sce)$log10GenesPerUMI <- log10(colData(sce)$detected) / log10(colData(sce)$sum)
+```
+
+```{r novelty_dens}
+# Visualize the overall novelty of the gene expression by visualizing the genes detected per UMI
+p <- colData(sce) %>%
+	data.frame() %>%
+        ggplot(aes(x=log10GenesPerUMI, color = source_name, fill = source_name)) +
+        geom_density()
+p
+
+tmpFn <- sprintf("%s/%s/%s/novelty_dens.png",
+		 projDir, outDirBit, qcPlotDirBit)
+ggsave(plot=p, file=tmpFn, type='cairo-png')
+```
+
+```{r rm_sce_preProc}
+rm(sce)
+```
+
+## QC based on sparsity
+
+The approach above identified poor-quality using thresholds on the number of genes detected and mitochondrial content. We will here specifically look at the sparsity of the data, both at the gene and cell levels. 
+
+### Remove genes that are not expressed at all
+
+Genes that are not expressed at all are not informative, so we remove them:
+
+```{r sce_nz_write, eval=saveRds}
+not.expressed <- rowSums(counts(scePreQc)) == 0
+
+# store the cell-wise information
+cols.meta <- colData(scePreQc)
+rows.meta <- rowData(scePreQc)
+
+nz.counts <- counts(scePreQc)[!not.expressed, ]
+sce.nz <- SingleCellExperiment(list(counts=nz.counts))
+
+# reset the column data on the new object
+colData(sce.nz) <- cols.meta
+rowData(sce.nz) <- rows.meta[!not.expressed, ]
+
+sce.nz
+
+# Write object to file
+tmpFn <- sprintf("%s/%s/Robjects/sce_nz.Rds",
+		 projDir, outDirBit)
+saveRDS(sce.nz, tmpFn)
+```
+
+```{r sce_nz_read, eval=!saveRds}
+# Write object to file
+tmpFn <- sprintf("%s/%s/Robjects/sce_nz.Rds",
+		 projDir, outDirBit)
+sce.nz <- readRDS(tmpFn)
+```
+
+### Sparsity plots
+
+We will compute:
+
+* the cell sparsity: for each cell, the proportion of genes that are not detected
+* the gene sparsity: for each gene, the proportion of cells in which it is not detected
+
+```{r sparsity_compute, eval=saveRds}
+# compute - SLOW
+cell_sparsity <- apply(counts(sce.nz) == 0, 2, sum)/nrow(counts(sce.nz))
+gene_sparsity <- apply(counts(sce.nz) == 0, 1, sum)/ncol(counts(sce.nz))
+
+colData(sce.nz)$cell_sparsity <- cell_sparsity
+rowData(sce.nz)$gene_sparsity <- gene_sparsity
+
+# write outcome to file for later use
+tmpFn <- sprintf("%s/%s/Robjects/sce_nz_sparsityCellGene.Rds",
+		 projDir, outDirBit)
+saveRDS(list("colData" = colData(sce.nz),
+	     "rowData" = rowData(sce.nz)),
+	tmpFn)
+```
+
+```{r sparsity_readRds, eval=!saveRds}
+# Read object in:
+tmpFn <- sprintf("%s/%s/Robjects/sce_nz_sparsityCellGene.Rds",
+		 projDir, outDirBit)
+tmpList <- readRDS(tmpFn)
+cell_sparsity <- tmpList$colData$cell_sparsity
+gene_sparsity <- tmpList$rowData$gene_sparsity
+```
+
+We now plot the distribution of these two metrics.
+
+The cell sparsity plot shows that cells have between 85% and 99% 0's, which is typical.
+
+```{r}
+hist(cell_sparsity, breaks=50, col="grey80", xlab="Cell sparsity", main="")
+```
+
+The gene sparsity plot shows that a large number of genes are almost never detected, which is also regularly observed.
+
+```{r}
+hist(gene_sparsity, breaks=50, col="grey80", xlab="Gene sparsity", main="")
+```
+
+### Filters
+
+We also remove cells with sparsity higher than 0.99, and/or mitochondrial content higher than 20%.
+
+Genes detected in a few cells only are unlikely to be informative and would hinder normalisation. We will remove genes that are expressed in fewer than 20 cells.
+
+```{r sparsity_filter}
+# filter
+sparse.cells <- cell_sparsity > 0.99
+mito.cells <- sce.nz$subsets_Mito_percent > 20
+
+min.cells <- 1 - (20/length(cell_sparsity))
+sparse.genes <- gene_sparsity > min.cells
+```
+
+Number of genes removed:
+
+```{r}
+table(sparse.genes)
+```
+
+Number of cells removed:
+
+```{r}
+table(sparse.cells, mito.cells)
+```
+
+```{r sparsity_ditch, eval=saveRds}
+# remove cells from the SCE object that are poor quality
+# remove the sparse genes, then re-set the counts and row data accordingly
+cols.meta <- colData(sce.nz)
+rows.meta <- rowData(sce.nz)
+
+counts.nz <- counts(sce.nz)[!sparse.genes, !(sparse.cells | mito.cells)]
+sce.nz <- SingleCellExperiment(assays=list(counts=counts.nz))
+colData(sce.nz) <- cols.meta[!(sparse.cells | mito.cells),]
+rowData(sce.nz) <- rows.meta[!sparse.genes, ]
+sce.nz
+
+# Write object to file
+tmpFn <- sprintf("%s/%s/Robjects/sce_nz_postQc.Rds",
+		 projDir, outDirBit)
+saveRDS(sce.nz, tmpFn)
+```
+
+```{r sparsity_filter_read, eval=!saveRds}
+# Read object in:
+tmpFn <- sprintf("%s/%s/Robjects/sce_nz_postQc.Rds",
+		 projDir, outDirBit)
+sce.nz <- readRDS(tmpFn)
+```
+
+Compare with filter above (mind that the comparison is not fair because we used a less stringent, hard filtering on mitochondrial content):
+
+```{r compare_filters_1}
+table(scePreQc$discard, (sparse.cells | mito.cells))
+```
+
+```{r rm_scePreQc}
+rm(scePreQc)
+```
+
+### Separate Caron and Hca batches
+
+We will now check sparsity for each batch separately.
+
+```{r sparsity_split}
+sce.nz.caron <- sce.nz[,sce.nz$setName=="Caron"]
+sce.nz.hca <- sce.nz[,sce.nz$setName=="Hca"]
+```
+
+### Caron only
+
+```{r Caron_sparsity_copy}
+setName <- "caron"
+sce.x <- sce.nz.caron
+rm(sce.nz.caron)
+```
+
+```{r Caron_sparsity_compute, eval=saveRds}
+# compute - SLOW
+cell_sparsity <- apply(counts(sce.x) == 0, 2, sum)/nrow(counts(sce.x))
+gene_sparsity <- apply(counts(sce.x) == 0, 1, sum)/ncol(counts(sce.x))
+
+colData(sce.x)$cell_sparsity <- cell_sparsity
+rowData(sce.x)$gene_sparsity <- gene_sparsity
+
+# write outcome to file for later use
+tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_sparsityCellGene.Rds",
+		 projDir, outDirBit, setName)
+saveRDS(list("colData" = colData(sce.x),
+	     "rowData" = rowData(sce.x)),
+	tmpFn)
+```
+
+```{r Caron_sparsity_readRds, eval=!saveRds}
+# Read object in:
+tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_sparsityCellGene.Rds",
+		 projDir, outDirBit, setName)
+tmpList <- readRDS(tmpFn)
+cell_sparsity <- tmpList$colData$cell_sparsity
+gene_sparsity <- tmpList$rowData$gene_sparsity
+```
+
+```{r Caron_sparsity_plot, eval=runAll}
+# plot
+tmpFn <- sprintf("%s/%s/%s/%s_sparsity.png",
+		 projDir, outDirBit, qcPlotDirBit, setName)
+CairoPNG(tmpFn)
+par(mfrow=c(1, 2))
+hist(cell_sparsity, breaks=50, col="grey80", xlab="Cell sparsity", main="")
+hist(gene_sparsity, breaks=50, col="grey80", xlab="Gene sparsity", main="")
+abline(v=40, lty=2, col='purple')
+dev.off()
+```
+
+```{r Caron_sparsity_show, out.width="80%"}
+tmpFn <- sprintf("../%s/%s_sparsity.png",
+		 qcPlotDirBit, setName)
+knitr::include_graphics(tmpFn, auto_pdf = TRUE)
+rm(tmpFn)
+```
+
+```{r Caron_sparsity_filter}
+# filter
+sparse.cells <- cell_sparsity > 0.99
+mito.cells <- sce.x$subsets_Mito_percent > 20
+
+min.cells <- 1 - (20/length(cell_sparsity))
+sparse.genes <- gene_sparsity > min.cells
+```
+
+We write the R object to 'caron_sce_nz_postQc.Rds'.
+
+```{r Caron_sparsity_ditch, eval=saveRds}
+# remove cells from the SCE object that are poor quality
+# remove the sparse genes, then re-set the counts and row data accordingly
+cols.meta <- colData(sce.x)
+rows.meta <- rowData(sce.x)
+
+counts.x <- counts(sce.x)[!sparse.genes, !(sparse.cells | mito.cells)]
+sce.x <- SingleCellExperiment(assays=list(counts=counts.x))
+colData(sce.x) <- cols.meta[!(sparse.cells | mito.cells),]
+rowData(sce.x) <- rows.meta[!sparse.genes, ]
+sce.x
+
+# Write object to file
+tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postQc.Rds", projDir, outDirBit, setName)
+saveRDS(sce.x, tmpFn)
+
+# update sce.nz.caron
+sce.nz.caron <- sce.x  # TODO not used
+rm(sce.x)
+```
+
+```{r Caron_sparsity_filter_read, eval=!saveRds}
+# Read object in:
+tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postQc.Rds",
+		 dirRel, outDirBit, setName)
+sce.nz.caron <- readRDS(tmpFn)
+```
+
+### Hca only
+
+```{r Hca_sparsity_copy}
+setName <- "hca"
+sce.x <- sce.nz.hca
+rm(sce.nz.hca)
+```
+
+```{r Hca_sparsity_compute, eval=saveRds}
+# compute - SLOW
+cell_sparsity <- apply(counts(sce.x) == 0, 2, sum)/nrow(counts(sce.x))
+gene_sparsity <- apply(counts(sce.x) == 0, 1, sum)/ncol(counts(sce.x))
+
+colData(sce.x)$cell_sparsity <- cell_sparsity
+rowData(sce.x)$gene_sparsity <- gene_sparsity
+
+# write outcome to file for later use
+tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_sparsityCellGene.Rds",
+		 projDir, outDirBit, setName)
+saveRDS(list("colData" = colData(sce.x),
+	     "rowData" = rowData(sce.x)),
+	tmpFn)
+```
+
+```{r Hca_sparsity_readRds, eval=!saveRds}
+# Read object in:
+tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_sparsityCellGene.Rds",
+		 projDir, outDirBit, setName)
+tmpList <- readRDS(tmpFn)
+cell_sparsity <- tmpList$colData$cell_sparsity
+gene_sparsity <- tmpList$rowData$gene_sparsity
+```
+
+```{r Hca_sparsity_plot, eval=runAll}
+# plot
+tmpFn <- sprintf("%s/%s/%s/%s_sparsity.png",
+		 projDir, outDirBit, qcPlotDirBit, setName)
+CairoPNG(tmpFn)
+par(mfrow=c(1, 2))
+hist(cell_sparsity, breaks=50, col="grey80", xlab="Cell sparsity", main="")
+hist(gene_sparsity, breaks=50, col="grey80", xlab="Gene sparsity", main="")
+abline(v=40, lty=2, col='purple')
+dev.off()
+```
+
+```{r Hca_sparsity_show, out.width="80%"}
+tmpFn <- sprintf("../%s/%s_sparsity.png",
+		 qcPlotDirBit, setName)
+knitr::include_graphics(tmpFn, auto_pdf = TRUE)
+rm(tmpFn)
+```
+
+```{r Hca_sparsity_filter, eval=runAll}
+# filter
+sparse.cells <- cell_sparsity > 0.99
+mito.cells <- sce.x$subsets_Mito_percent > 20
+
+min.cells <- 1 - (20/length(cell_sparsity))
+sparse.genes <- gene_sparsity > min.cells
+```
+
+We write the R object to 'hca_sce_nz_postQc.Rds'.
+
+```{r Hca_sparsity_ditch, eval=saveRds}
+# remove cells from the SCE object that are poor quality
+# remove the sparse genes, then re-set the counts and row data accordingly
+cols.meta <- colData(sce.x)
+rows.meta <- rowData(sce.x)
+
+counts.x <- counts(sce.x)[!sparse.genes, !(sparse.cells | mito.cells)]
+sce.x <- SingleCellExperiment(assays=list(counts=counts.x))
+colData(sce.x) <- cols.meta[!(sparse.cells | mito.cells),]
+rowData(sce.x) <- rows.meta[!sparse.genes, ]
+sce.x
+
+# Write object to file
+tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postQc.Rds",
+		 projDir, outDirBit, setName)
+saveRDS(sce.x, tmpFn)
+
+# update sce.nz.hca
+sce.nz.hca <- sce.x  # TODO not used
+rm(sce.x)
+```
+
+```{r Hca_sparsity_filter_read, eval=!saveRds}
+# Read object in:
+tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postQc.Rds",
+		 projDir, outDirBit, setName)
+sce.nz.hca <- readRDS(tmpFn) # TODO not used
+```
+
+## Session information
+
+<details>
+```{r}
+sessionInfo()
+```
+</details>

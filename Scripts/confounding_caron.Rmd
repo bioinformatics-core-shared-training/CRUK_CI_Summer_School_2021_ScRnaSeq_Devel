@@ -1,0 +1,65 @@
+---
+title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
+subtitle: 'Identifyng confounding factors'
+
+author: "Stephane Ballereau, Zeynep Kalender Atak, Katarzyna Kania"
+output:
+  html_notebook:
+    code_folding: hide
+    toc: yes
+    toc_float: yes
+    number_sections: true
+  html_document:
+    df_print: paged
+    toc: yes
+    number_sections: true
+    code_folding: hide
+  html_book:
+    code_folding: hide
+params:
+  projDir: "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
+  dirRel: ".."
+  inpDirBit: "AnaWiSce/Ana1"
+  outDirBit: "AnaWiSce/Ana1"
+  bookType: "mk"
+  cacheBool: FALSE
+---
+
+```{r variables_confounding}
+projDir <- params$projDir
+dirRel <- params$dirRel
+outDirBit <- params$outDirBit
+cacheBool <- params$cacheBool
+```
+
+```{r library_confounding}
+library(knitr)
+```
+
+```{r confoundingCaron.knitr_options, include=FALSE, echo=FALSE, dev="CairoPNG"}
+require(knitr)
+opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
+opts_chunk$set(echo = TRUE)
+opts_chunk$set(eval = TRUE) 
+options(stringsAsFactors = FALSE)
+opts_chunk$set(fig.width=7, fig.height=7)
+#opts_chunk$set(dev = c("png"))
+#options(bitmapType='cairo')
+opts_chunk$set(dev="CairoPNG")
+set.seed(123) # for reproducibility
+```
+
+```{r expand_confounding, include=FALSE, cache=FALSE}
+# mind hardcoded setSuf <- "_5hCellPerSpl" in child template
+src <- lapply(c("Caron"),
+	      function(setNameUpp) knit_expand(file = "confounding.Rmd"))
+```
+
+`r knit(text = unlist(src))`
+
+## Session information
+
+```{r}
+sessionInfo()
+```
+

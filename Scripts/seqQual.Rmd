@@ -1,0 +1,244 @@
+---
+title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
+subtitle: 'Sequence quality'
+
+author: "Stephane Ballereau"
+output:
+  html_notebook:
+    code_folding: hide
+    toc: yes
+    toc_float: yes
+    number_sections: true
+  html_document:
+    df_print: paged
+    toc: yes
+    number_sections: true
+    code_folding: hide
+  html_book:
+    code_folding: hide
+params:
+  projDir: "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
+  inpDirBit: "AnaWiSce/Ana1"
+  outDirBit: "AnaWiSce/Ana1"
+  bookType: "mk"
+  cacheBool: FALSE
+---
+
+<!--
+TODO:
+-->
+
+# Sequence Quality {#SeqQualTop}
+
+```{r seqQual.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
+cacheBool <- params$cacheBool
+require(knitr)
+opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
+opts_chunk$set(fig.width=7, fig.height=7) 
+knitr::opts_chunk$set(dev="CairoPNG")
+```
+
+```{r variables_seqQual}
+#projDir <- "/home/ubuntu/Course_Materials/scRNAseq"
+projDir <- params$projDir
+projDirLink <- "/Users/baller01/MyMount/svr008ssd/20200511_FernandesM_ME_crukBiSs2020"
+inpDirBit <- params$inpDirBit
+outDirBit <- params$outDirBit
+dirRel <- ".."
+```
+
+```{r libraries_seqQual}
+library(DT)
+```
+
+
+## Introduction
+
+We will use two sets of Bone Marrow Mononuclear Cells (BMMC):
+
+* 'CaronBourque2020': pediatric samples
+* 'Hca': HCA Census of Immune Cells for adult BMMCs
+
+Fastq files were retrieved from publicly available archive (SRA and HCA). 
+
+Sequencing quality was assessed and visualised using fastQC and MultiQC.
+
+Library structure reminder:
+
+<!--
+![](`r sprintf("%s/Images/tenxLibStructureV3.png", projDir)`)
+-->
+
+```{r}
+tmpFn <- sprintf("%s/Images/tenxLibStructureV3.png", dirRel)
+knitr::include_graphics(tmpFn, auto_pdf = TRUE)
+rm(tmpFn)
+```
+
+* The **sample index** identifies the library, with one I7 index per sample
+* The 10X **cell barcode** (or cell index) identifies the droplet in the library
+* The **UMI** identifies the transcript molecule within a cell and gene
+* The **insert** is the transcript molecule, ie the cDNA sequence
+
+Each sample is described with three sets of fastq files:
+
+* **I1**: sample index
+* **R1**: 10x barcode + UMI
+* **R2**: insert sequence
+
+The sample index is actually a set of four 8-ntd oligo.
+For example SIGAB8 is 'AAAGTGCT-GCTACCTG-TGCTGTAA-CTGCAAGC'.
+All four are used and identified by a digit, eg 1-4.
+Depending on the processing pipeline, fastq files may be returned for each 8-ntd index, or combined into a single file.
+
+For the Caron data set they are combined in a single file, and files for separate lanes were also combined into a single fastq file.
+
+Each sample is identified by three fastq files, one per read type:
+
+* **sample** _ S0 _ L001 _ **I1** _ 001 _ .fastq.gz: contains sample index
+* **sample** _ S0 _ L001 _ **R1** _ 001 _ .fastq.gz: contains 10x barcode + UMI
+* **sample** _ S0 _ L001 _ **R2** _ 001 _ .fastq.gz: contains insert sequence
+
+We kept the same names for the fastqc output. With for example sample 'SRR9264343':
+
+* **SRR9264343** _ S0 _ L001 _ **I1** _ 001 _ fastqc.html
+* **SRR9264343** _ S0 _ L001 _ **R1** _ 001 _ fastqc.html
+* **SRR9264343** _ S0 _ L001 _ **R2** _ 001 _ fastqc.html
+
+```{r}
+fastqcDir <- sprintf("%s/Data/%s/fastqc", projDir, "CaronBourque2020")
+fastqcDirLink <- sprintf("%s/Data/%s/fastqc", projDirLink, "CaronBourque2020")
+```
+
+## CaronBourque2020 - fastqc
+
+```{r}
+# CaronBourque2020
+cb_sampleSheetFn <- file.path(projDir, "Data/CaronBourque2020/SraRunTable.txt")
+cb_sampleSheet <- read.table(cb_sampleSheetFn, header=T, sep=",")
+#cb_sampleSheet <-  cb_sampleSheet %>% filter(!Run == "SRR9264351")
+cb_sampleSheet
+```
+
+```{r, results = 'asis'}
+htmlVec <- list.files(fastqcDir)
+htmlVec <- grep("\\.html$", htmlVec, value=TRUE)
+```
+
+```{r}
+filesDf <- data.frame(
+		      "I1" = sprintf("%s_S0_L001_%s_001_fastqc.html", cb_sampleSheet$Run, "I1"),
+		      "R1" = sprintf("%s_S0_L001_%s_001_fastqc.html", cb_sampleSheet$Run, "R1"),
+		      "R2" = sprintf("%s_S0_L001_%s_001_fastqc.html", cb_sampleSheet$Run, "R2")
+)
+rownames(filesDf) <- cb_sampleSheet$Run
+```
+
+```{r, results = 'asis'}
+for (runx in cb_sampleSheet$Run)
+{
+	cat("Run ", runx, ":\n\n")
+	for(i in c("I1", "R1", "R2"))
+	{
+		#filepath <- file.path(fastqcDir, filesDf[runx,i])
+		filepath <- file.path(fastqcDirLink, filesDf[runx,i])
+		cat(i, ": [", filesDf[runx,i], "](",filepath,")\n\n")
+	}
+}
+```
+
+## CaronBourque2020 - MultiQC
+
+### sample index: I1
+
+```{r, results = 'asis'}
+htmlVec <- list.files(paste0(fastqcDir, "/Multiqc/I1"))
+htmlVec <- grep("\\.html$", htmlVec, value=TRUE)
+for(i in htmlVec){
+	filename <- file.path(fastqcDirLink, "/Multiqc/I1", i)
+	cat("[", i, "](",filename,")\n\n")
+}
+```
+
+### cell barcode + UMI: R1
+
+```{r, results = 'asis'}
+htmlVec <- list.files(paste0(fastqcDir, "/Multiqc/R1"))
+htmlVec <- grep("\\.html$", htmlVec, value=TRUE)
+for(i in htmlVec){
+	filename <- file.path(fastqcDirLink, "/Multiqc/R1", i)
+	cat("[", i, "](",filename,")\n\n")
+}
+```
+
+### insert: R2
+
+```{r, results = 'asis'}
+htmlVec <- list.files(paste0(fastqcDir, "/Multiqc/R2"))
+htmlVec <- grep("\\.html$", htmlVec, value=TRUE)
+for(i in htmlVec){
+	filename <- file.path(fastqcDirLink, "/Multiqc/R2", i)
+	cat("[", i, "](",filename,")\n\n")
+}
+```
+
+## HCA adult BMMC - fastqc
+
+For the HCA adult BMMC fastq files were provided for each 8-ntd sample index and lane. We ran fastqc on each separately. We are therefore not listing links to the fastqc reports but only to the MultiQC reports.
+
+```{r}
+fastqcDir <- sprintf("%s/Data/%s/fastqc", projDir, "Hca")
+fastqcDirLink <- sprintf("%s/Data/%s/fastqc", projDirLink, "Hca")
+
+# HCA
+hca_sampleSheetFn <- file.path(projDir, "Data/Hca/accList_Hca.txt")
+
+hca_sampleSheet <- read.table(hca_sampleSheetFn, header=F, sep=",")
+colnames(hca_sampleSheet) <- "Run"
+hca_sampleSheet
+```
+
+```{r, results = 'asis'}
+htmlVec <- list.files(fastqcDir)
+htmlVec <- grep("\\.html$", htmlVec, value=TRUE)
+```
+
+`r #length(htmlVec)`
+378 fastqc reports were compiled in the multiQC reports below.
+
+##  HCA adult BMMC - MultiQC
+
+### sample index: I1
+
+```{r, results = 'asis'}
+htmlVec <- list.files(paste0(fastqcDir, "/Multiqc/I1"))
+htmlVec <- grep("\\.html$", htmlVec, value=TRUE)
+for(i in htmlVec){
+	filename <- file.path(fastqcDirLink, "/Multiqc/I1", i)
+	cat("[", i, "](",filename,")\n\n")
+}
+```
+
+### cell barcode + UMI: R1
+
+```{r, results = 'asis'}
+htmlVec <- list.files(paste0(fastqcDir, "/Multiqc/R1"))
+htmlVec <- grep("\\.html$", htmlVec, value=TRUE)
+for(i in htmlVec){
+	filename <- file.path(fastqcDirLink, "/Multiqc/R1", i)
+	cat("[", i, "](",filename,")\n\n")
+}
+```
+
+### insert: R2
+
+```{r, results = 'asis'}
+htmlVec <- list.files(paste0(fastqcDir, "/Multiqc/R2"))
+htmlVec <- grep("\\.html$", htmlVec, value=TRUE)
+for(i in htmlVec){
+	filename <- file.path(fastqcDirLink, "/Multiqc/R2", i)
+	cat("[", i, "](",filename,")\n\n")
+}
+```
+
+
