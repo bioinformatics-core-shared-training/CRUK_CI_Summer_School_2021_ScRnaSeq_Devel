@@ -1,0 +1,44 @@
+---
+title: "THE_TITLE"
+author: "YOUR_NAME_HERE"
+date: 'THE_DATE'
+output:
+  ioslides_presentation:
+    widescreen: true
+    smaller: true
+    logo: CRUK_CC_web.jpg
+    css: stylesheet.css
+---
+
+```{r include=FALSE}
+library(tidyr)
+library(dplyr)
+source("SOME_SCRIPT.R")
+```
+
+## Outline
+
+* bla
+
+* bla
+
+* bla
+
+* bla
+
+## Section 1 title
+
+Text
+
+## Section 2 title
+
+Text
+
+## Summary
+
+* bla
+
+* bla
+
+* bla
+
