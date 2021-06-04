@@ -226,7 +226,7 @@ sce
 
 If you compare the dimensions of this object to those of the raw object above, 
 you will see that whereas the raw object that **`r ncolRaw`** columns, the 
-filtered object only has **`r ncol(sec)`** columns.
+filtered object only has **`r ncol(sce)`** columns.
 
 ## Modify the droplet annotation
 
@@ -298,7 +298,7 @@ For the current set of samples the total number of genes detected across cells
 was `r sum(rowSums(counts(sce)) > 0)` out of `r nrow(sce)` gene in the 
 reference, but if we look at the number of genes 
 detected in each cell, we can see that this ranges from `r min(genesPerCell)` to
-`r max(genePerCell)`, with a median of `r median(genePerCell)`.
+`r max(genesPerCell)`, with a median of `r median(genesPerCell)`.
 
 ```{r properties_distribNbGenesDetected}
 genesPerCell <- colSums(counts(sce) > 0)
@@ -970,13 +970,17 @@ plotColData(sce,
 We will now exclude poor-quality cells.
 
 ```{r sce_qc_ditch}
-sceFiltered <- sce[,!sce$discard]
-sceFiltered
+sce.Filtered <- sce[,!sce$discard]
+sce.Filtered
 ```
 
 We also write the R object to file to use later if need be.
 
 ```{r qc_write_rds, eval=FALSE}
+saveRDS(sce.Filtered, "Course_Materials/results/sce_filtered.rds")
+```
+
+```{r qc_write_rds_bkp, echo=FALSE, eval=FALSE}
 saveRDS(sce, "Course_Materials/results/sce_filters_marked.rds")
 ```
 
@@ -991,10 +995,6 @@ genes detected and mitochondrial content. We will here specifically look at the
 sparsity of the data, both at the gene and cell levels.
 
 To illustrate this we will just consider the Caron samples.
-
-### Separate Caron and Hca batches
-
-We will now check sparsity for each batch separately.
 
 ```{r sparsity_split}
 sce.caron <- sce[,sce$setName=="Caron"]
@@ -1013,7 +1013,7 @@ To help calculate the gene sparsity we can generate QC metrics for genes with
 * **mean** - the mean UMI count for the gene across all cells  
 * **detected** - the percentage of cells in which the gene was detected
 
-```{r qc_addPerFeatureQC, eval=addQcBool}
+```{r qc_addPerFeatureQC, eval=TRUE}
 sce.caron <- addPerFeatureQC(sce.caron)
 head(rowData(sce.caron)) %>%
 	as.data.frame() %>%
@@ -1030,13 +1030,15 @@ rowData(sce.caron)$gene_sparsity <- (100 - rowData(sce.caron)$detected) / 100
 
 We now plot the distribution of these two metrics.
 
-The cell sparsity plot shows that cells have between 85% and 99% 0's, which is typical.
+The cell sparsity plot shows that most cells have between 85% and 99% 0's, which
+is typical.
 
 ```{r}
 hist(sce.caron$cell_sparsity, breaks=50, col="grey80", xlab="Cell sparsity", main="")
 ```
 
-The gene sparsity plot shows that a large number of genes are almost never detected, which is also regularly observed.
+The gene sparsity plot shows that a large number of genes are almost never
+detected, which is also regularly observed.
 
 ```{r}
 hist(rowData(sce.caron)$gene_sparsity, breaks=50, col="grey80", xlab="Gene sparsity", main="")
@@ -1071,7 +1073,7 @@ Number of cells removed:
 table(sparse.cells, mito.cells)
 ```
 
-```{r sparsity_ditch, eval=saveRds}
+```{r sparsity_ditch}
 sce.caron <- sce.caron[!sparse.genes, !(sparse.cells|mito.cells)]
 sce.caron
 ```
@@ -1123,7 +1125,10 @@ colData(sce) %>%
 We can calculate a "novelty" metrics that related the number of genes detected
 to the total number of UMIs for each cell:
 
+```
 $\frac{\log_{10}(Number\ of\ Genes)}{\log_{10}(Number\ of\ UMIs)}$
+```
+
 
 ```{r novelty_calc}
 colData(sce)$log10GenesPerUMI <- log10(colData(sce)$detected) / log10(colData(sce)$sum)
