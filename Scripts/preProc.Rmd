@@ -67,6 +67,7 @@ library(SingleCellExperiment)
 library(Matrix)
 library(DropletUtils)
 library(scater)
+library(ensembldb)
 library(AnnotationHub)
 library(tidyverse)
 library(patchwork)
@@ -77,7 +78,7 @@ library(ggvenn)
 * Matrix - to deal with sparse and/or large matrices
 * DropletUtils - utilities for the analysis of droplet-based, inc. cell counting
 * scater - QC
-* AnnotationHub - for gene annotation
+* ensembldb & AnnotationHub - for gene annotation
 
 ## Sample sheet
 
@@ -85,7 +86,7 @@ We will load both the Caron and Hca data sets. We have already prepared a sample
 meta data table that relates the sample/run ID to the sample group.
 
 ```{r samplesheet_preProc, message=FALSE}
-samplesheet <- read_tsv("Course_Materials/Data/sample_sheet.tsv")
+samplesheet <- read_tsv("CourseMaterials/Data/sample_sheet.tsv")
 ```
 
 ```{r samplesheet_display_preProc, echo=FALSE}
@@ -103,7 +104,7 @@ containing the counts matrix, cell barcodes and features (genes). In this case
 we will load the raw matrix.
 
 ```{r example_load}
-sample.path <- "Course_Materials/CellRanger_Outputs/SRR9264343/outs/raw_feature_bc_matrix/"
+sample.path <- "CourseMaterials/CellRanger_Outputs/SRR9264343/outs/raw_feature_bc_matrix/"
 sce.raw <- read10xCounts(sample.path, col.names=TRUE)
 sce.raw
 ```
@@ -211,7 +212,7 @@ vector will be used as the sample names in the Single Cell Experiment object.
 list_of_files <- samplesheet %>%
     group_by(SampleGroup) %>% 
     slice(1:2) %>%
-    mutate(File=str_c("Course_Materials/CellRanger_Outputs/", 
+    mutate(File=str_c("CourseMaterials/CellRanger_Outputs/", 
                       Sample,
                       "/outs/filtered_feature_bc_matrix")) %>%
     pull(File, Sample)
@@ -273,12 +274,12 @@ colData(sce)
 Let's save the object for future reference.
 
 ```{r dataSets_writeRds, eval=FALSE}
-saveRDS(sce, "Course_Materials/results/sce_pooled_samples.rds")
+saveRDS(sce, "CourseMaterials/results/sce_pooled_samples.rds")
 ```
 
 
-```{r dataSets_writeRds, echo=FALSE, eval=FALSE}
-sce <- readRDS("Course_Materials/results/sce_pooled_samples.rds")
+```{r dataSets_readRds, echo=FALSE, eval=FALSE}
+sce <- readRDS("CourseMaterials/results/sce_pooled_samples.rds")
 ```
 
 ## Properties of scRNA-seq data
@@ -330,7 +331,6 @@ We could also look at the distribution of counts for individual genes across all
 cells. The plot below shows this distribution for the top 20 genes detected.
 
 ```{r}
-#Compute the relative expression of each gene per cell
 rel_expression <- t( t(counts(sce)) / Matrix::colSums(counts(sce))) * 100
 rownames(rel_expression) <- rowData(sce)$Symbol
 most_expressed <- sort(Matrix::rowSums( rel_expression ),T)[20:1]
@@ -428,9 +428,9 @@ ens.mm.93 <- query(ah, c("Homo sapiens", "EnsDb", 93))[[1]]
 
 genes <- rowData(sce)$ID
 gene_annot <- AnnotationDbi::select(ens.mm.93, 
-                              keys = genes,
-                              keytype = "GENEID",
-                              columns = c("GENEID", "SEQNAME")) %>%
+                                    keys = genes,
+                                    keytype = "GENEID",
+                                    columns = c("GENEID", "SEQNAME")) %>%
     set_names(c("ID", "Chromosome"))
 rowData(sce) <- merge(rowData(sce), gene_annot, by = "ID", sort=FALSE)
 rownames(rowData(sce)) <- rowData(sce)$ID
@@ -440,12 +440,12 @@ rowData(sce)
 
 
 ```{r dataSets_writeRds2, eval=FALSE}
-saveRDS(sce, "Course_Materials/results/sce_pooled_samples_annot.rds")
+saveRDS(sce, "CourseMaterials/results/sce_pooled_samples_annot.rds")
 ```
 
 
-```{r dataSets_writeRds2, echo=FALSE, eval=FALSE}
-sce <- readRDS("Course_Materials/results/sce_pooled_samples_annot.rds")
+```{r dataSets_readRds2, echo=FALSE, eval=FALSE}
+sce <- readRDS("CourseMaterials/results/sce_pooled_samples_annot.rds")
 ```
 
 Number of genes per chromosome, including 13 on the mitochondrial genome:
@@ -480,7 +480,7 @@ The function has added six columns to the droplet annotation:
 We will use **sum**, **detected**, and **subsets_Mito_percent** to further
 filter the cells.
 
-```{r qc_addPerCellQC, eval=addQcBool}
+```{r qc_addPerCellQCTab, eval=TRUE}
 head(colData(sce)) %>%
 	as.data.frame() %>%
 	datatable(rownames = FALSE)
@@ -517,7 +517,7 @@ better idea we need to have a look at these distributions on a per sample basis.
 The `scater` function `plotColData` provides a simple interface for generating
 these plots.
 
-```{r qc_metricDistrib_plotColData_write, out.width=80%}
+```{r qc_metricDistrib_plotColData_write, fig.width=12, fig.height=14}
 p1 <- plotColData(sce, x="Sample", y="sum",other_fields="SampleGroup") + 
         facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
         scale_y_log10() + 
@@ -594,7 +594,7 @@ attr(low_lib_size, "thresholds")[1]
 
 We can view the effect of the filtering using `plotColData`.
 
-```{r , out.width=80%}
+```{r, fig.width=12, fig.height=5}
 colData(sce)$low_lib_size <- low_lib_size
 plotColData(sce, 
             x="Sample", 
@@ -626,7 +626,7 @@ attr(low_n_features, "thresholds")[1]
 
 We can view the effect of the filtering using `plotColData`.
 
-```{r , out.width=80%}
+```{r, fig.width=12, fig.height=5}
 colData(sce)$low_n_features <- low_n_features
 plotColData(sce, 
             x="Sample", 
@@ -658,7 +658,7 @@ attr(high_Mito_percent, "thresholds")[2]
 
 We can view the effect of the filtering using `plotColData`.
 
-```{r , out.width=80%}
+```{r, fig.width=12, fig.height=5}
 colData(sce)$high_Mito_percent <- high_Mito_percent
 plotColData(sce, 
             x="Sample",
@@ -817,6 +817,7 @@ p.mt <- plotColData(sce,
 
 p.lib / p.ng / p.mt
 ```
+
 There are some distinct differences, most noticeable is that there is now no
 filtering using library size. The venn diagrams below show how the number of
 discarded droplets in HCA and Caron have changed for each filter in comparison
@@ -951,7 +952,7 @@ interpret the reason why any particular droplet has been excluded.
 
 ## Mitochondrial content versus library size
 
-A useful diagnostic plot for assessing the impact of the filterings is to do a
+A useful diagnostic plot for assessing the impact of the filtering is to do a
 scatter plot of the mitochondrial content against the library size. We can 
 overlay our final filter metric using the point colour.
 
@@ -963,6 +964,7 @@ plotColData(sce,
             colour_by="discard") +
     facet_wrap(~Sample, ncol=5, scale="free_x")
 ```
+
 ### Filter low-quality cells out
 
 We will now exclude poor-quality cells.
@@ -982,74 +984,21 @@ saveRDS(sce, "Course_Materials/results/sce_filters_marked.rds")
 sce <- readRDS("Course_Materials/results/sce_filters_marked.rds")
 ```
 
-<!--
-
-## Novelty
-
-The number of genes per UMI for each cell informs on the level of sequencing
-saturation achieved (
-[hbctraining](https://hbctraining.github.io/In-depth-NGS-Data-Analysis-Course/sessionIV/lessons/SC_quality_control_analysis.html)).
-For a given cell, as sequencing depth increases each extra UMI is less likely to
-correspond to a gene not already detected in that cell. Cells with small library
-size tend to have higher overall 'novelty' i.e. they have not reached saturation
-for any given gene. Outlier cell may have a library with low complexity. This
-may suggest the some cell types, e.g. red blood cells. The expected novelty 
-(log10(Gene per a UMI)) is about 0.8.
-
-Here we see that some PBMMCs have low novelty, i.e. overall fewer genes were
-detected for an equivalent number of UMIs in these cells than in others.
-
-```{r novelty_scat}
-p <- colData(sce) %>%
-  data.frame() %>%
-  ggplot(aes(x=sum, y=detected, color=subsets_Mito_percent)) + 
-  geom_point() + 
-  stat_smooth(method=lm) +
-  scale_x_log10() + 
-  scale_y_log10() + 
-  geom_vline(xintercept = 800) +
-  facet_wrap(~source_name)
-p
-
-plot
-
-# write plot to file
-
-tmpFn <- sprintf("%s/%s/%s/novelty_scat.png",
-		 projDir, outDirBit, qcPlotDirBit)
-ggsave(plot=p, file=tmpFn, type = "cairo-png")
-
-# Novelty
-# the number of genes per UMI for each cell,
-# https://hbctraining.github.io/In-depth-NGS-Data-Analysis-Course/sessionIV/lessons/SC_quality_control_analysis.html
-
-# Add number of UMIs per gene for each cell to metadata
-colData(sce)$log10GenesPerUMI <- log10(colData(sce)$detected) / log10(colData(sce)$sum)
-```
-
-```{r novelty_dens}
-# Visualize the overall novelty of the gene expression by visualizing the genes detected per UMI
-p <- colData(sce) %>%
-	data.frame() %>%
-        ggplot(aes(x=log10GenesPerUMI, color = source_name, fill = source_name)) +
-        geom_density()
-p
-
-tmpFn <- sprintf("%s/%s/%s/novelty_dens.png",
-		 projDir, outDirBit, qcPlotDirBit)
-ggsave(plot=p, file=tmpFn, type='cairo-png')
-```
-
-```{r rm_sce_preProc}
-rm(sce)
-```
--->
-
 ## QC and Filtering based on sparsity
 
 The approach above identified poor-quality using thresholds on the number of
 genes detected and mitochondrial content. We will here specifically look at the
 sparsity of the data, both at the gene and cell levels.
+
+To illustrate this we will just consider the Caron samples.
+
+### Separate Caron and Hca batches
+
+We will now check sparsity for each batch separately.
+
+```{r sparsity_split}
+sce.caron <- sce[,sce$setName=="Caron"]
+```
 
 ### Sparsity plots
 
@@ -1058,7 +1007,6 @@ We will compute:
 * the cell sparsity: for each cell, the proportion of genes that are not detected
 * the gene sparsity: for each gene, the proportion of cells in which it is not detected
 
-
 To help calculate the gene sparsity we can generate QC metrics for genes with
 `addPerFeatureQC`. This adds two columns to the gene annotation (`rowData`):
 
@@ -1066,17 +1014,18 @@ To help calculate the gene sparsity we can generate QC metrics for genes with
 * **detected** - the percentage of cells in which the gene was detected
 
 ```{r qc_addPerFeatureQC, eval=addQcBool}
-sce <- addPerFeatureQC(sce)
-head(rowData(sce)) %>%
+sce.caron <- addPerFeatureQC(sce.caron)
+head(rowData(sce.caron)) %>%
 	as.data.frame() %>%
 	datatable(rownames = FALSE)
 ```
+
 Now we can calculate sparsity using the "detected" columns in the `colData` and 
 the `rowData`.
 
 ```{r sparsity_compute}
-colData(sce)$cell_sparsity <- 1 - (colData(sce)$detected / nrow(sce))
-rowData(sce)$gene_sparsity <- (100 - rowData(sce)$detected) / 100
+colData(sce.caron)$cell_sparsity <- 1 - (colData(sce.caron)$detected / nrow(sce.caron))
+rowData(sce.caron)$gene_sparsity <- (100 - rowData(sce.caron)$detected) / 100
 ```
 
 We now plot the distribution of these two metrics.
@@ -1084,30 +1033,30 @@ We now plot the distribution of these two metrics.
 The cell sparsity plot shows that cells have between 85% and 99% 0's, which is typical.
 
 ```{r}
-hist(sce$cell_sparsity, breaks=50, col="grey80", xlab="Cell sparsity", main="")
+hist(sce.caron$cell_sparsity, breaks=50, col="grey80", xlab="Cell sparsity", main="")
 ```
 
 The gene sparsity plot shows that a large number of genes are almost never detected, which is also regularly observed.
 
 ```{r}
-hist(rowData(sce)$gene_sparsity, breaks=50, col="grey80", xlab="Gene sparsity", main="")
+hist(rowData(sce.caron)$gene_sparsity, breaks=50, col="grey80", xlab="Gene sparsity", main="")
 ```
 
 ### Filter by sparsity
 
 We will remove cells with sparsity higher than 0.99, and/or mitochondrial
-content higher than 20%.
+content higher than 10%.
 
 Genes detected in a few cells only are unlikely to be informative and would
 hinder normalisation. We will remove genes that are expressed in fewer than 20
 cells.
 
 ```{r sparsity_filter}
-sparse.cells <- sce$cell_sparsity > 0.99
-mito.cells <- sce$subsets_Mito_percent > 20
+sparse.cells <- sce.caron$cell_sparsity > 0.99
+mito.cells <- sce.caron$subsets_Mito_percent > 10
 
-min.cells <- 1 - (20 / ncol(sce))
-sparse.genes <- rowData(sce)$gene_sparsity > min.cells
+min.cells <- 1 - (20 / ncol(sce.caron))
+sparse.genes <- rowData(sce.caron)$gene_sparsity > min.cells
 ```
 
 Number of genes removed:
@@ -1123,223 +1072,73 @@ table(sparse.cells, mito.cells)
 ```
 
 ```{r sparsity_ditch, eval=saveRds}
-sce.zn <- sce[!sparse.genes, !(sparse.cells|mito.cells)]
-sce.zn
-
-# Write object to file
-tmpFn <- sprintf("%s/%s/Robjects/sce_nz_postQc.Rds",
-		 projDir, outDirBit)
-saveRDS(sce.nz, tmpFn)
+sce.caron <- sce.caron[!sparse.genes, !(sparse.cells|mito.cells)]
+sce.caron
 ```
 
-```{r sparsity_filter_read, eval=!saveRds}
-# Read object in:
-tmpFn <- sprintf("%s/%s/Robjects/sce_nz_postQc.Rds",
-		 projDir, outDirBit)
-sce.nz <- readRDS(tmpFn)
+**Note**: An important thing to note is that, now that we have filtered this 
+object, some of the QC metrics that we calculated across all genes (for `colData`)
+and across all cells (for `rowData`) are not longer correct for the filtered
+data set. We need to remove them, and if necessary recalculate them.
+
+```{r}
+colData(sce.caron) <- colData(sce.caron)[,1:3]
+sce.caron <- addPerCellQC(sce.caron)
+rowData(sce.caron) <- rowData(sce.caron)[,1:4]
+sce.caron <- addPerFeatureQC(sce.caron)
 ```
 
-Compare with filter above (mind that the comparison is not fair because we used a less stringent, hard filtering on mitochondrial content):
+Write the object out to a file for later use.
 
-```{r compare_filters_1}
-table(scePreQc$discard, (sparse.cells | mito.cells))
+```{r sparsity_write, eval=FALSE}
+saveRDS(sce.caron.nz, "results/sce.caron_nz_postQc.Rds")
 ```
 
-```{r rm_scePreQc}
-rm(scePreQc)
+## Novelty
+
+The number of genes per UMI for each cell informs on the level of sequencing
+saturation achieved (
+[hbctraining](https://hbctraining.github.io/scRNA-seq_online/lessons/04_SC_quality_control.html)).
+For a given cell, as sequencing depth increases each extra UMI is less likely to
+correspond to a gene not already detected in that cell. Cells with small library
+size tend to have higher overall 'novelty', i.e. they have not reached
+saturation for any given gene. 
+
+Here we see that some cells have fewer genes detected per UMI than in others.
+This may suggest dying cell, which should be filtered out, or these might
+represent a cell type with a less complex suite of genes being expressed, e.g.
+red blood cells, which you may or may not wish to filter out.
+
+```{r novelty_scat, fig.width=12, fig.height=7}
+colData(sce) %>%
+  as.data.frame() %>%
+  arrange(subsets_Mito_percent) %>% 
+  ggplot(aes(x=sum, y=detected)) + 
+  geom_point(aes(color=subsets_Mito_percent)) + 
+  stat_smooth(method=lm) +
+  scale_x_log10() + 
+  scale_y_log10() + 
+  facet_wrap(vars(SampleGroup, Sample), ncol=5, dir="v")
+```
+We can calculate a "novelty" metrics that related the number of genes detected
+to the total number of UMIs for each cell:
+
+$\frac{\log_{10}(Number\ of\ Genes)}{\log_{10}(Number\ of\ UMIs)}$
+
+```{r novelty_calc}
+colData(sce)$log10GenesPerUMI <- log10(colData(sce)$detected) / log10(colData(sce)$sum)
 ```
 
-### Separate Caron and Hca batches
+The expected novelty is 0.8 or higher.
 
-We will now check sparsity for each batch separately.
-
-```{r sparsity_split}
-sce.nz.caron <- sce.nz[,sce.nz$setName=="Caron"]
-sce.nz.hca <- sce.nz[,sce.nz$setName=="Hca"]
+```{r novelty_dens, fig.width=12, fig.height=4}
+colData(sce) %>%
+	as.data.frame() %>%
+        ggplot(aes(x=log10GenesPerUMI)) +
+        geom_density(aes(color = Sample, fill = Sample), alpha=0.6) +
+        facet_wrap(vars(SampleGroup), ncol=10)
 ```
 
-### Caron only
-
-```{r Caron_sparsity_copy}
-setName <- "caron"
-sce.x <- sce.nz.caron
-rm(sce.nz.caron)
-```
-
-```{r Caron_sparsity_compute, eval=saveRds}
-# compute - SLOW
-cell_sparsity <- apply(counts(sce.x) == 0, 2, sum)/nrow(counts(sce.x))
-gene_sparsity <- apply(counts(sce.x) == 0, 1, sum)/ncol(counts(sce.x))
-
-colData(sce.x)$cell_sparsity <- cell_sparsity
-rowData(sce.x)$gene_sparsity <- gene_sparsity
-
-# write outcome to file for later use
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_sparsityCellGene.Rds",
-		 projDir, outDirBit, setName)
-saveRDS(list("colData" = colData(sce.x),
-	     "rowData" = rowData(sce.x)),
-	tmpFn)
-```
-
-```{r Caron_sparsity_readRds, eval=!saveRds}
-# Read object in:
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_sparsityCellGene.Rds",
-		 projDir, outDirBit, setName)
-tmpList <- readRDS(tmpFn)
-cell_sparsity <- tmpList$colData$cell_sparsity
-gene_sparsity <- tmpList$rowData$gene_sparsity
-```
-
-```{r Caron_sparsity_plot, eval=runAll}
-# plot
-tmpFn <- sprintf("%s/%s/%s/%s_sparsity.png",
-		 projDir, outDirBit, qcPlotDirBit, setName)
-CairoPNG(tmpFn)
-par(mfrow=c(1, 2))
-hist(cell_sparsity, breaks=50, col="grey80", xlab="Cell sparsity", main="")
-hist(gene_sparsity, breaks=50, col="grey80", xlab="Gene sparsity", main="")
-abline(v=40, lty=2, col='purple')
-dev.off()
-```
-
-```{r Caron_sparsity_show, out.width="80%"}
-tmpFn <- sprintf("../%s/%s_sparsity.png",
-		 qcPlotDirBit, setName)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
-```
-
-```{r Caron_sparsity_filter}
-# filter
-sparse.cells <- cell_sparsity > 0.99
-mito.cells <- sce.x$subsets_Mito_percent > 20
-
-min.cells <- 1 - (20/length(cell_sparsity))
-sparse.genes <- gene_sparsity > min.cells
-```
-
-We write the R object to 'caron_sce_nz_postQc.Rds'.
-
-```{r Caron_sparsity_ditch, eval=saveRds}
-# remove cells from the SCE object that are poor quality
-# remove the sparse genes, then re-set the counts and row data accordingly
-cols.meta <- colData(sce.x)
-rows.meta <- rowData(sce.x)
-
-counts.x <- counts(sce.x)[!sparse.genes, !(sparse.cells | mito.cells)]
-sce.x <- SingleCellExperiment(assays=list(counts=counts.x))
-colData(sce.x) <- cols.meta[!(sparse.cells | mito.cells),]
-rowData(sce.x) <- rows.meta[!sparse.genes, ]
-sce.x
-
-# Write object to file
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postQc.Rds", projDir, outDirBit, setName)
-saveRDS(sce.x, tmpFn)
-
-# update sce.nz.caron
-sce.nz.caron <- sce.x  # TODO not used
-rm(sce.x)
-```
-
-```{r Caron_sparsity_filter_read, eval=!saveRds}
-# Read object in:
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postQc.Rds",
-		 dirRel, outDirBit, setName)
-sce.nz.caron <- readRDS(tmpFn)
-```
-
-### Hca only
-
-```{r Hca_sparsity_copy}
-setName <- "hca"
-sce.x <- sce.nz.hca
-rm(sce.nz.hca)
-```
-
-```{r Hca_sparsity_compute, eval=saveRds}
-# compute - SLOW
-cell_sparsity <- apply(counts(sce.x) == 0, 2, sum)/nrow(counts(sce.x))
-gene_sparsity <- apply(counts(sce.x) == 0, 1, sum)/ncol(counts(sce.x))
-
-colData(sce.x)$cell_sparsity <- cell_sparsity
-rowData(sce.x)$gene_sparsity <- gene_sparsity
-
-# write outcome to file for later use
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_sparsityCellGene.Rds",
-		 projDir, outDirBit, setName)
-saveRDS(list("colData" = colData(sce.x),
-	     "rowData" = rowData(sce.x)),
-	tmpFn)
-```
-
-```{r Hca_sparsity_readRds, eval=!saveRds}
-# Read object in:
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_sparsityCellGene.Rds",
-		 projDir, outDirBit, setName)
-tmpList <- readRDS(tmpFn)
-cell_sparsity <- tmpList$colData$cell_sparsity
-gene_sparsity <- tmpList$rowData$gene_sparsity
-```
-
-```{r Hca_sparsity_plot, eval=runAll}
-# plot
-tmpFn <- sprintf("%s/%s/%s/%s_sparsity.png",
-		 projDir, outDirBit, qcPlotDirBit, setName)
-CairoPNG(tmpFn)
-par(mfrow=c(1, 2))
-hist(cell_sparsity, breaks=50, col="grey80", xlab="Cell sparsity", main="")
-hist(gene_sparsity, breaks=50, col="grey80", xlab="Gene sparsity", main="")
-abline(v=40, lty=2, col='purple')
-dev.off()
-```
-
-```{r Hca_sparsity_show, out.width="80%"}
-tmpFn <- sprintf("../%s/%s_sparsity.png",
-		 qcPlotDirBit, setName)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
-```
-
-```{r Hca_sparsity_filter, eval=runAll}
-# filter
-sparse.cells <- cell_sparsity > 0.99
-mito.cells <- sce.x$subsets_Mito_percent > 20
-
-min.cells <- 1 - (20/length(cell_sparsity))
-sparse.genes <- gene_sparsity > min.cells
-```
-
-We write the R object to 'hca_sce_nz_postQc.Rds'.
-
-```{r Hca_sparsity_ditch, eval=saveRds}
-# remove cells from the SCE object that are poor quality
-# remove the sparse genes, then re-set the counts and row data accordingly
-cols.meta <- colData(sce.x)
-rows.meta <- rowData(sce.x)
-
-counts.x <- counts(sce.x)[!sparse.genes, !(sparse.cells | mito.cells)]
-sce.x <- SingleCellExperiment(assays=list(counts=counts.x))
-colData(sce.x) <- cols.meta[!(sparse.cells | mito.cells),]
-rowData(sce.x) <- rows.meta[!sparse.genes, ]
-sce.x
-
-# Write object to file
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postQc.Rds",
-		 projDir, outDirBit, setName)
-saveRDS(sce.x, tmpFn)
-
-# update sce.nz.hca
-sce.nz.hca <- sce.x  # TODO not used
-rm(sce.x)
-```
-
-```{r Hca_sparsity_filter_read, eval=!saveRds}
-# Read object in:
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postQc.Rds",
-		 projDir, outDirBit, setName)
-sce.nz.hca <- readRDS(tmpFn) # TODO not used
-```
 
 ## Session information
 
