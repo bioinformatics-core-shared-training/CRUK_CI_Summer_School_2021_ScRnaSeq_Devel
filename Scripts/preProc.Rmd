@@ -1125,9 +1125,8 @@ colData(sce) %>%
 We can calculate a "novelty" metrics that related the number of genes detected
 to the total number of UMIs for each cell:
 
-```
+
 $\frac{\log_{10}(Number\ of\ Genes)}{\log_{10}(Number\ of\ UMIs)}$
-```
 
 
 ```{r novelty_calc}
