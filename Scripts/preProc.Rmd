@@ -67,10 +67,7 @@ library(SingleCellExperiment)
 library(Matrix)
 library(DropletUtils)
 library(scater)
-library(scran)
-library(igraph)
 library(AnnotationHub)
-library(irlba)
 library(tidyverse)
 library(patchwork)
 library(ggvenn)
@@ -80,10 +77,7 @@ library(ggvenn)
 * Matrix - to deal with sparse and/or large matrices
 * DropletUtils - utilities for the analysis of droplet-based, inc. cell counting
 * scater - QC
-* scran - normalisation
-* igraph - graphs 
 * AnnotationHub - for gene annotation
-* irlba - for faster PCA
 
 ## Sample sheet
 
@@ -462,18 +456,6 @@ rowData(sce) %>%
 	count(Chromosome, name = "Number of Genes") %>%
 	datatable(rownames = FALSE)
 ```
-<!--
-Calculate and store QC metrics for genes with addPerFeatureQC() and for cells
-with addPerCellQC().
-
-```{r qc_addPerFeatureQC, eval=addQcBool}
-sce <- addPerFeatureQC(sce)
-head(rowData(sce)) %>%
-	as.data.frame() %>%
-	datatable(rownames = FALSE)
-```
-
--->
 
 We can add the per cell QC metrics to the droplet annotation using the function
 `addPerCellQC`. In order to get the percentage of mitochondrial UMIs in each
@@ -889,20 +871,60 @@ cells having > 1000 UMIs. When we applied the adaptive filters across all
 samples, these two samples caused the MADs to be distorted and resulted in a
 threshold that was inappropriately high for the Caron samples.
 
-## QC filtering using PCA
+## QC and filtering by combining the metrics. 
 
 In the previous approach we used the three metrics in isolation to filter
-droplets. Another approach is to combine the three metrics in a single filtering
-step. One way to do this is to perform a principal components analysis (PCA) and
-use this to detect outliers. The `scater` function `runColDataPCA` can be used
-to perform the PCA and detect outliers. Here we will use the same three metrics
-as before: library size, the number of genes detected and the mitochondrial
-content.
+droplets. Another approach is to combine the three (or more) metrics in a single
+filtering step by looking for outliers in the multi-dimensional space defined by
+the metrics.
+
+As with the adaptive thresholds above, this method should not be applied across
+batches or samples with differing distributions in the metrics or it will 
+exclude many good quality cells. To demonstrate these methods, we'll just 
+extract one sample from our SingleCellExperiment object.
 
 ```{r}
-sce <- runColDataPCA(sce, 
-                     variables=list("sum", "detected", "subsets_Mito_percent"),
+sce.BM1 <- sce[ , sce$Sample == "MantonBM1"]
+```
+
+### Using "outlyingness"
+
+Essentially we need to reduce our 3 metrics to a single metric, we can then use
+`isOutlier` to select outliers based on this metric. One way to do this is to
+use the function `adjOutlyingness` from the `robustbase` package. This function
+computes the "outlyingness" for each droplet.
+
+Here we will use the same three metrics as before: library size, the number of
+genes detected and the mitochondrial content. Remember that for "sum" (total
+UMIs) and "detected" (number of genes detected), we want to use the `log10`
+value.
+
+```{r}
+library(robustbase)
+stats <- cbind(log10(sce.BM1$sum),
+               log10(sce.BM1$detected),
+               sce.BM1$subsets_Mito_percent)
+
+outlying <- adjOutlyingness(stats, only.outlyingness = TRUE)
+multi.outlier <- isOutlier(outlying, type = "higher")
+summary(multi.outlier)
+```
+
+### Using PCA
+
+Another approach is to perform a principal components analysis (PCA) on the
+table of metrics, apply `adjOutlyingness` to the metrics table and use this to
+detect outliers. The `scater` function `runColDataPCA` can be used to perform
+the PCA and detect outliers. We'll need to add a couple of columns to the
+`colData` for the log10 metrics first.
+
+```{r}
+sce.BM1$log10sum <- log10(sce.BM1$sum)
+sce.BM1$log10detected <- log10(sce.BM1$detected)
+sce.BM1 <- runColDataPCA(sce.BM1, 
+                     variables=list("log10sum", "log10detected", "subsets_Mito_percent"),
                      outliers=TRUE)
+summary(sce.BM1$outlier)
 ```
 
 This has added the results of the principle component analysis into a new slot
@@ -911,79 +933,71 @@ dimension reduction transformations such as PCA, t-SNE and UMAP. The results
 can be accessed using the `reducedDim` function.
 
 ```{r}
-head(reducedDim(sce))
+head(reducedDim(sce.BM1))
 ```
 
 It has also added a column "outlier" to the `colData`, which specifies the 
 droplets that have been identified as outliers.
 
 ```{r}
-summary(sce$outlier)
+summary(sce.BM1$outlier)
 ```
 
-As with the adaptive thresholds above, this method should not be applied across
-batches or samples with differing distributions in the metrics or it will 
-exclude many good quality cells.
+### A note on multi-dimensional filtering
 
-These types of approach can provide more power for detecting outliers as they 
+These types of approach can provide more power for detecting outliers as they
 are looking at patterns across multiple metrics, however, it can be difficult to
-interpret the reason why any particular droplet has been excluded. 
+interpret the reason why any particular droplet has been excluded.
 
-### Other diagnostic plots
+## Mitochondrial content versus library size
 
-Mitochondrial content against library size:
-
-```{r}
-plotColData(sce, x="sum", y="subsets_Mito_percent", colour_by="discard")
-```
+A useful diagnostic plot for assessing the impact of the filterings is to do a
+scatter plot of the mitochondrial content against the library size. We can 
+overlay our final filter metric using the point colour.
 
 ```{r}
-sp <- ggplot(data.frame(colData(sce)),
-	     aes(x=sum, y=subsets_Mito_percent, col=discard)) +
-  geom_point(size = 0.05, alpha = 0.7) +
-  geom_density_2d(size = 0.5, colour = "blue") +
-  guides(colour = guide_legend(override.aes = list(size=1, alpha=1))) +
-  theme(legend.position="bottom")
-#sp
-ggExtra::ggMarginal(sp)
+plotColData(sce, 
+            x="sum", 
+            y="subsets_Mito_percent", 
+            other_fields="Sample",
+            colour_by="discard") +
+    facet_wrap(~Sample, ncol=5, scale="free_x")
 ```
-
-Mind distributions:
-
-```{r}
-sp + facet_wrap(~source_name)
-```
-
 ### Filter low-quality cells out
 
 We will now exclude poor-quality cells.
 
 ```{r sce_qc_ditch}
-scePreQc <- sce
-sce <- scePreQc[,!scePreQc$discard]
-sce
+sceFiltered <- sce[,!sce$discard]
+sceFiltered
 ```
 
 We also write the R object to file to use later if need be.
 
-```{r sce_qc_write, eval=saveRds}
-# Write object to file
-tmpFn <- sprintf("%s/%s/Robjects/sce_postQc.Rds", projDir, outDirBit)
-saveRDS(sce, tmpFn)
+```{r qc_write_rds, eval=FALSE}
+saveRDS(sce, "Course_Materials/results/sce_filters_marked.rds")
 ```
 
-```{r sce_qc_read, eval=!saveRds}
-# Read object in:
-tmpFn <- sprintf("%s/%s/Robjects/sce_postQc.Rds",
-		 projDir, outDirBit)
-sce <- readRDS(tmpFn)
+```{r qc_read_rds, eval=FALSE, echo=FALSE}
+sce <- readRDS("Course_Materials/results/sce_filters_marked.rds")
 ```
+
+<!--
 
 ## Novelty
 
-The number of genes per UMI for each cell informs on the level of sequencing saturation achieved ( [hbctraining](https://hbctraining.github.io/In-depth-NGS-Data-Analysis-Course/sessionIV/lessons/SC_quality_control_analysis.html)). For a given cell, as sequencing depth increases each extra UMI is less likely to correspnf to a gene not already detected in that cell. Cells with small library size tend to have higher overall 'novelty' i.e. they have not reached saturation for any given gene. Outlier cell may have a library with low complexity. This may suggest the some cell types, e.g. red blood cells. The expected novelty is about 0.8.
+The number of genes per UMI for each cell informs on the level of sequencing
+saturation achieved (
+[hbctraining](https://hbctraining.github.io/In-depth-NGS-Data-Analysis-Course/sessionIV/lessons/SC_quality_control_analysis.html)).
+For a given cell, as sequencing depth increases each extra UMI is less likely to
+correspond to a gene not already detected in that cell. Cells with small library
+size tend to have higher overall 'novelty' i.e. they have not reached saturation
+for any given gene. Outlier cell may have a library with low complexity. This
+may suggest the some cell types, e.g. red blood cells. The expected novelty 
+(log10(Gene per a UMI)) is about 0.8.
 
-Here we see that some PBMMCs have low novelty, ie overall fewer genes were detected for an equivalent number of UMIs in these cells than in others.
+Here we see that some PBMMCs have low novelty, i.e. overall fewer genes were
+detected for an equivalent number of UMIs in these cells than in others.
 
 ```{r novelty_scat}
 p <- colData(sce) %>%
@@ -996,6 +1010,8 @@ p <- colData(sce) %>%
   geom_vline(xintercept = 800) +
   facet_wrap(~source_name)
 p
+
+plot
 
 # write plot to file
 
@@ -1027,43 +1043,13 @@ ggsave(plot=p, file=tmpFn, type='cairo-png')
 ```{r rm_sce_preProc}
 rm(sce)
 ```
+-->
 
-## QC based on sparsity
+## QC and Filtering based on sparsity
 
-The approach above identified poor-quality using thresholds on the number of genes detected and mitochondrial content. We will here specifically look at the sparsity of the data, both at the gene and cell levels. 
-
-### Remove genes that are not expressed at all
-
-Genes that are not expressed at all are not informative, so we remove them:
-
-```{r sce_nz_write, eval=saveRds}
-not.expressed <- rowSums(counts(scePreQc)) == 0
-
-# store the cell-wise information
-cols.meta <- colData(scePreQc)
-rows.meta <- rowData(scePreQc)
-
-nz.counts <- counts(scePreQc)[!not.expressed, ]
-sce.nz <- SingleCellExperiment(list(counts=nz.counts))
-
-# reset the column data on the new object
-colData(sce.nz) <- cols.meta
-rowData(sce.nz) <- rows.meta[!not.expressed, ]
-
-sce.nz
-
-# Write object to file
-tmpFn <- sprintf("%s/%s/Robjects/sce_nz.Rds",
-		 projDir, outDirBit)
-saveRDS(sce.nz, tmpFn)
-```
-
-```{r sce_nz_read, eval=!saveRds}
-# Write object to file
-tmpFn <- sprintf("%s/%s/Robjects/sce_nz.Rds",
-		 projDir, outDirBit)
-sce.nz <- readRDS(tmpFn)
-```
+The approach above identified poor-quality using thresholds on the number of
+genes detected and mitochondrial content. We will here specifically look at the
+sparsity of the data, both at the gene and cell levels.
 
 ### Sparsity plots
 
@@ -1072,29 +1058,25 @@ We will compute:
 * the cell sparsity: for each cell, the proportion of genes that are not detected
 * the gene sparsity: for each gene, the proportion of cells in which it is not detected
 
-```{r sparsity_compute, eval=saveRds}
-# compute - SLOW
-cell_sparsity <- apply(counts(sce.nz) == 0, 2, sum)/nrow(counts(sce.nz))
-gene_sparsity <- apply(counts(sce.nz) == 0, 1, sum)/ncol(counts(sce.nz))
 
-colData(sce.nz)$cell_sparsity <- cell_sparsity
-rowData(sce.nz)$gene_sparsity <- gene_sparsity
+To help calculate the gene sparsity we can generate QC metrics for genes with
+`addPerFeatureQC`. This adds two columns to the gene annotation (`rowData`):
 
-# write outcome to file for later use
-tmpFn <- sprintf("%s/%s/Robjects/sce_nz_sparsityCellGene.Rds",
-		 projDir, outDirBit)
-saveRDS(list("colData" = colData(sce.nz),
-	     "rowData" = rowData(sce.nz)),
-	tmpFn)
+* **mean** - the mean UMI count for the gene across all cells  
+* **detected** - the percentage of cells in which the gene was detected
+
+```{r qc_addPerFeatureQC, eval=addQcBool}
+sce <- addPerFeatureQC(sce)
+head(rowData(sce)) %>%
+	as.data.frame() %>%
+	datatable(rownames = FALSE)
 ```
+Now we can calculate sparsity using the "detected" columns in the `colData` and 
+the `rowData`.
 
-```{r sparsity_readRds, eval=!saveRds}
-# Read object in:
-tmpFn <- sprintf("%s/%s/Robjects/sce_nz_sparsityCellGene.Rds",
-		 projDir, outDirBit)
-tmpList <- readRDS(tmpFn)
-cell_sparsity <- tmpList$colData$cell_sparsity
-gene_sparsity <- tmpList$rowData$gene_sparsity
+```{r sparsity_compute}
+colData(sce)$cell_sparsity <- 1 - (colData(sce)$detected / nrow(sce))
+rowData(sce)$gene_sparsity <- (100 - rowData(sce)$detected) / 100
 ```
 
 We now plot the distribution of these two metrics.
@@ -1102,28 +1084,30 @@ We now plot the distribution of these two metrics.
 The cell sparsity plot shows that cells have between 85% and 99% 0's, which is typical.
 
 ```{r}
-hist(cell_sparsity, breaks=50, col="grey80", xlab="Cell sparsity", main="")
+hist(sce$cell_sparsity, breaks=50, col="grey80", xlab="Cell sparsity", main="")
 ```
 
 The gene sparsity plot shows that a large number of genes are almost never detected, which is also regularly observed.
 
 ```{r}
-hist(gene_sparsity, breaks=50, col="grey80", xlab="Gene sparsity", main="")
+hist(rowData(sce)$gene_sparsity, breaks=50, col="grey80", xlab="Gene sparsity", main="")
 ```
 
-### Filters
+### Filter by sparsity
 
-We also remove cells with sparsity higher than 0.99, and/or mitochondrial content higher than 20%.
+We will remove cells with sparsity higher than 0.99, and/or mitochondrial
+content higher than 20%.
 
-Genes detected in a few cells only are unlikely to be informative and would hinder normalisation. We will remove genes that are expressed in fewer than 20 cells.
+Genes detected in a few cells only are unlikely to be informative and would
+hinder normalisation. We will remove genes that are expressed in fewer than 20
+cells.
 
 ```{r sparsity_filter}
-# filter
-sparse.cells <- cell_sparsity > 0.99
-mito.cells <- sce.nz$subsets_Mito_percent > 20
+sparse.cells <- sce$cell_sparsity > 0.99
+mito.cells <- sce$subsets_Mito_percent > 20
 
-min.cells <- 1 - (20/length(cell_sparsity))
-sparse.genes <- gene_sparsity > min.cells
+min.cells <- 1 - (20 / ncol(sce))
+sparse.genes <- rowData(sce)$gene_sparsity > min.cells
 ```
 
 Number of genes removed:
@@ -1139,16 +1123,8 @@ table(sparse.cells, mito.cells)
 ```
 
 ```{r sparsity_ditch, eval=saveRds}
-# remove cells from the SCE object that are poor quality
-# remove the sparse genes, then re-set the counts and row data accordingly
-cols.meta <- colData(sce.nz)
-rows.meta <- rowData(sce.nz)
-
-counts.nz <- counts(sce.nz)[!sparse.genes, !(sparse.cells | mito.cells)]
-sce.nz <- SingleCellExperiment(assays=list(counts=counts.nz))
-colData(sce.nz) <- cols.meta[!(sparse.cells | mito.cells),]
-rowData(sce.nz) <- rows.meta[!sparse.genes, ]
-sce.nz
+sce.zn <- sce[!sparse.genes, !(sparse.cells|mito.cells)]
+sce.zn
 
 # Write object to file
 tmpFn <- sprintf("%s/%s/Robjects/sce_nz_postQc.Rds",
