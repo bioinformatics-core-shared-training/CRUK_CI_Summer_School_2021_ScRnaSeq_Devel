@@ -231,9 +231,9 @@ list_of_files <- samplesheet %>%
     group_by(SampleGroup) %>% 
     slice(1:2) %>%
     mutate(File=str_c("CellRanger_Outputs/", 
-                      Sample,
+                      SampleId,
                       "/outs/filtered_feature_bc_matrix")) %>%
-    pull(File, Sample)
+    pull(File, SampleId)
 list_of_files
 ```
     
@@ -279,7 +279,7 @@ colData(sce) <- colData(sce) %>%
     rownames_to_column("RowName") %>% 
     mutate(SampleNum = str_extract(RowName, "^[0-9]+")) %>%
     mutate(Barcode = str_replace(Barcode, "1$", SampleNum)) %>%
-    left_join(samplesheet, by="Sample") %>%
+    left_join(samplesheet, by=c(Sample="SampleId")) %>%
     select(-SampleNum) %>%
     column_to_rownames("RowName") %>% 
     DataFrame()
