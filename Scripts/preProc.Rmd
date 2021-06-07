@@ -15,8 +15,6 @@ output:
     number_sections: true
 ---
 
-# Quality Control {#PreProcTop}
-
 ```{r setup, echo=FALSE, include=FALSE, message=FALSE}
 library(DT)
 library(knitr)
@@ -26,7 +24,7 @@ opts_chunk$set(dev="CairoPNG")
 set.seed(123)
 ```
 
-## Introduction
+# Introduction {#PreProcTop}
 
 <!--
 OSCA chapter 6 Quality Control
@@ -35,7 +33,7 @@ OSCA chapter 6 Quality Control
 We will use two sets of Bone Marrow Mononuclear Cells (BMMC):
 
 * 'CaronBourque2020': pediatric samples
-* 'Hca': HCA Census of Immune Cells for adult BMMCs
+* 'HCA': HCA Census of Immune Cells for adult BMMCs
 
 Fastq files were retrieved from publicly available archive (SRA and HCA). 
 
@@ -45,22 +43,17 @@ Reads were aligned against GRCh38 and features counted using cellranger (v3.1.0)
 
 We will now check the quality of the data further:
 
-* mapping quality and amplification rate
-* cell counts
-* distribution of keys quality metrics
+* Mapping quality
+* Cell counts
+* Distribution of keys quality metrics
 
 We will then:
 
-* filter genes with very low expression
-* identify low-quality cells
-* filter and/or mark low quality cells
+* Filter genes with very low expression
+* Identify low-quality cells
+* Filter and/or mark low quality cells
 
-<!-- TODO:
-- add references and/or links
-- add code used to fetch the data or point to script or have chapter for retrieval+QC and for cellranger
--->
-
-## Load packages
+# Load packages
 
 ```{r libraries_preProc}
 library(SingleCellExperiment)
@@ -69,6 +62,7 @@ library(DropletUtils)
 library(scater)
 library(ensembldb)
 library(AnnotationHub)
+library(BiocParallel)
 library(tidyverse)
 library(patchwork)
 library(ggvenn)
@@ -79,10 +73,14 @@ library(ggvenn)
 * DropletUtils - utilities for the analysis of droplet-based, inc. cell counting
 * scater - QC
 * ensembldb & AnnotationHub - for gene annotation
+* BiocParallel - for parallelisation of some functions
+* tidyverse, patchwork & ggvenn - for data.frame manipulation and plotting
 
-## Sample sheet
+#  Load the data
 
-We will load both the Caron and Hca data sets. We have already prepared a sample
+## Sample meta data
+
+We will load both the Caron and HCA data sets. We have already prepared a sample
 meta data table that relates the sample/run ID to the sample group.
 
 ```{r samplesheet_preProc, message=FALSE}
@@ -95,21 +93,45 @@ samplesheet %>%
 	datatable(rownames = FALSE, options = list(dom="tpl", nrows=20))
 ```
 
-## Load the data
+## The scRNAseq count data from CellRanger
 
 We will load the data for the **SRR9264343**. To load the data from the 
 CellRanger outputs, we need to use the function `read10xCounts` from the
-`DropletUtils` package. We pass the funtion the location of the directory 
-containing the counts matrix, cell barcodes and features (genes). In this case
-we will load the raw matrix.
+`DropletUtils` package. 
+
+### Parallelisation
+
+scRNAseq data sets tend to be very large and processing them requires a large
+amount of computing power and can take time. Many of the commands we will use
+have the option to be run in parallels across multiple processors. By default 
+they will only use a single processor, but parallelisation will greatly speed
+up the analysis. 
+
+We need to first set up some parallel parameters using the 
+package [`BiocParallel`](https://bioconductor.org/packages/release/bioc/vignettes/BiocParallel/inst/doc/Introduction_To_BiocParallel.pdf).
+
+```{r}
+bp.params <- MulticoreParam(workers = 7)
+```
+
+Here were are selecting to use forked processes with `MulticoreParam` and 
+instructing the function to use 7 cores (our machines have 8, this leaves 1 to
+run the desktop etc.) Note that on Windows `MulticoreParam` does not work and 
+it is necessary to use `SnowParam` - please refer to the `BiocParallel` 
+vignettes for further information.
+
+### Loading a single sample
+
+We pass the function the location of the directory containing the counts matrix,
+cell barcodes and features (genes). In this case we will load the raw matrix.
 
 ```{r example_load}
 sample.path <- "CourseMaterials/CellRanger_Outputs/SRR9264343/outs/raw_feature_bc_matrix/"
-sce.raw <- read10xCounts(sample.path, col.names=TRUE)
+sce.raw <- read10xCounts(sample.path, col.names=TRUE, BPPARAM = bp.params)
 sce.raw
 ```
 
-## The `SingleCellExperiment` object
+### The `SingleCellExperiment` object
 
 The data has been loaded as a
 [SingleCellExperiment](https://bioconductor.org/packages/SingleCellExperiment/)
@@ -220,7 +242,7 @@ list_of_files
 ```
     
 ```{r load_data_sets}           
-sce <- read10xCounts(list_of_files, col.names=TRUE)
+sce <- read10xCounts(list_of_files, col.names=TRUE, BPPARAM = bp.params)
 sce
 ```
 
@@ -465,7 +487,7 @@ mitochondrial.
 ```{r qc_addPerCellQC}
 is.mito <- which(rowData(sce)$Chromosome=="MT")
 
-sce <- addPerCellQC(sce, subsets=list(Mito=is.mito))
+sce <- addPerCellQC(sce, subsets=list(Mito=is.mito), BPPARAM = bp.params)
 ```
 
 The function has added six columns to the droplet annotation:
@@ -660,7 +682,7 @@ We can view the effect of the filtering using `plotColData`.
 
 ```{r, fig.width=12, fig.height=5}
 colData(sce)$high_Mito_percent <- high_Mito_percent
-plotColData(sce, 
+plotColData(sce,  
             x="Sample",
             y="subsets_Mito_percent",
             other_fields="SampleGroup",
@@ -701,7 +723,8 @@ The three steps above may be run in one go using the `quickPerCellQC` function.
 
 ```{r adapThres_quickPerCellQC}
 reasons <- quickPerCellQC(colData(sce),
-			  percent_subsets=c("subsets_Mito_percent"))
+			  percent_subsets=c("subsets_Mito_percent"),
+			  BPPARAM = bp.params)
 
 as.data.frame(reasons) %>%
     summarise(across(everything(), sum)) %>% 
@@ -741,7 +764,8 @@ sce$setName <- ifelse(str_detect(sce$SampleGroup, "ABMMC"), "HCA", "Caron")
 
 batch.reasons <- quickPerCellQC(colData(sce),
                                 percent_subsets=c("subsets_Mito_percent"),
-                                batch=sce$setName)
+                                batch=sce$setName,
+			                    BPPARAM = bp.params)
 
 as.data.frame(batch.reasons) %>%
     summarise(across(everything(), sum)) %>% 
@@ -924,7 +948,8 @@ sce.BM1$log10sum <- log10(sce.BM1$sum)
 sce.BM1$log10detected <- log10(sce.BM1$detected)
 sce.BM1 <- runColDataPCA(sce.BM1, 
                      variables=list("log10sum", "log10detected", "subsets_Mito_percent"),
-                     outliers=TRUE)
+                     outliers=TRUE,
+			         BPPARAM = bp.params)
 summary(sce.BM1$outlier)
 ```
 
@@ -1014,7 +1039,7 @@ To help calculate the gene sparsity we can generate QC metrics for genes with
 * **detected** - the percentage of cells in which the gene was detected
 
 ```{r qc_addPerFeatureQC, eval=TRUE}
-sce.caron <- addPerFeatureQC(sce.caron)
+sce.caron <- addPerFeatureQC(sce.caron, BPPARAM = bp.params)
 head(rowData(sce.caron)) %>%
 	as.data.frame() %>%
 	datatable(rownames = FALSE)
