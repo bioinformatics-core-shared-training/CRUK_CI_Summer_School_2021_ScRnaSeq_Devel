@@ -1,8 +1,8 @@
 ---
 title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
-subtitle: 'Sequence quality'
+subtitle: 'Sequence Quality'
 
-author: "Stephane Ballereau"
+author: "Stephane Ballereau & Ashley Sawle"
 output:
   html_notebook:
     code_folding: hide
@@ -14,66 +14,41 @@ output:
     toc: yes
     number_sections: true
     code_folding: hide
-  html_book:
-    code_folding: hide
-params:
-  projDir: "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
-  inpDirBit: "AnaWiSce/Ana1"
-  outDirBit: "AnaWiSce/Ana1"
-  bookType: "mk"
-  cacheBool: FALSE
 ---
 
-<!--
-TODO:
--->
-
-# Sequence Quality {#SeqQualTop}
-
-```{r seqQual.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
-cacheBool <- params$cacheBool
-require(knitr)
-opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
-opts_chunk$set(fig.width=7, fig.height=7) 
-knitr::opts_chunk$set(dev="CairoPNG")
-```
-
-```{r variables_seqQual}
-#projDir <- "/home/ubuntu/Course_Materials/scRNAseq"
-projDir <- params$projDir
-projDirLink <- "/Users/baller01/MyMount/svr008ssd/20200511_FernandesM_ME_crukBiSs2020"
-inpDirBit <- params$inpDirBit
-outDirBit <- params$outDirBit
-dirRel <- ".."
-```
-
-```{r libraries_seqQual}
+```{r setup, include=FALSE}
 library(DT)
+knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, echo=FALSE)
+knitr::opts_chunk$set(cache=FALSE)
 ```
 
 
-## Introduction
+# Introduction
 
 We will use two sets of Bone Marrow Mononuclear Cells (BMMC):
 
 * 'CaronBourque2020': pediatric samples
-* 'Hca': HCA Census of Immune Cells for adult BMMCs
+* 'HCA': HCA Census of Immune Cells for adult BMMCs
 
 Fastq files were retrieved from publicly available archive (SRA and HCA). 
 
-Sequencing quality was assessed and visualised using fastQC and MultiQC.
+The samples included are:
 
-Library structure reminder:
-
-<!--
-![](`r sprintf("%s/Images/tenxLibStructureV3.png", projDir)`)
--->
-
-```{r}
-tmpFn <- sprintf("%s/Images/tenxLibStructureV3.png", dirRel)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
+```{r sampleTab}
+readr::read_tsv("Data/sample_sheet.tsv") %>%  
+	as.data.frame() %>%
+	datatable(rownames = FALSE, options = list(dom="t", pageLength=20))
 ```
+
+
+# 10x library file structure (version 3 chemistry)
+
+The 10x library contains for pieces of information, in the form of DNA sequences,
+for each "Read".
+
+![](Images/10x_v3_Library_Structure.png)
+`r knitr::knit_exit()`
+
 
 * The **sample index** identifies the library, with one I7 index per sample
 * The 10X **cell barcode** (or cell index) identifies the droplet in the library
