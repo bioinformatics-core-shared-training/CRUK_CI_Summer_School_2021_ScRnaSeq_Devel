@@ -2,26 +2,13 @@
 title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
 subtitle: 'cellranger'
 
-author: "Stephane Ballereau"
+author: "Stephane Ballereau & Ashley Sawle"
 output:
-  html_notebook:
-    code_folding: hide
-    toc: yes
-    toc_float: yes
-    number_sections: true
   html_document:
     df_print: paged
     toc: yes
     number_sections: true
     code_folding: hide
-  html_book:
-    code_folding: hide
-params:
-  projDir: "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
-  inpDirBit: "AnaWiSce/Ana1"
-  outDirBit: "AnaWiSce/Ana1"
-  bookType: "mk"
-  cacheBool: FALSE
 ---
 
 **WORKING DOCUMENT - IN PROGRESS**
@@ -31,52 +18,106 @@ TODO:
 -->
 
 
-```{r cellranger.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
-cacheBool <- params$cacheBool
-require(knitr)
-opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
-opts_chunk$set(fig.width=7, fig.height=7)
-knitr::opts_chunk$set(dev="CairoPNG")
-```
-
-```{r library_cellRanger}
-library(dplyr)
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=FALSE)
+knitr::opts_chunk$set(echo=FALSE)
 ```
 
 # Alignment and feature counting {#AliFeatCountTop}
 
 ## Introduction
 
-We will use two sets of Bone Marrow Mononuclear Cells (BMMC):
+The first step in the analysis of single cell RNAseq data is to align the
+sequences reads against a genomic reference and then use a transcriptome
+annotation to generate read counts for each features of interest. Typically
+for scRNAseq the features of interest are genes.
 
-* 'CaronBourque2020': pediatric samples
-* 'Hca': HCA Census of Immune Cells for adult BMMCs
+There are a variety of tools for doing this and your choice will depend in part
+on the method by which the library was generated. For data generated using the
+10x-Chromium method data the most common approach is to use the 
+[Cell Ranger](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger)
+tool provided by 10x. This not only carries out the alignment and feature
+counting, but will also:
 
-Fastq files were retrieved from publicly available archive (SRA and HCA). 
+* Call cells, i.e. filter the raw matrix to remove droplets that do not contain
+  cells   
+* Generate a very useful report in html format, which will provide some QC
+  metrics and an initial look at the data   
+* Generate a "cloupe" file, which can be opened using the [10x loupe
+  browser](https://support.10xgenomics.com/single-cell-gene-expression/software/visualization/latest/what-is-loupe-cell-browser)
+  software to further explore the data.   
 
-Sequencing quality was assessed and visualised using fastQC and MultiQC.
+Alternative methods include:
 
-Reads were aligned against GRCh38 and features counted using cellranger (v3.1.0).
+* **[STAR solo](https://github.com/alexdobin/STAR/blob/master/docs/STARsolo.md)** -
+  this tool is built into the general purpose STAR aligner (Cell Ranger actually
+  uses STAR under the hood). This will generate outputs very similar to
+  CellRanger minus the cloupe file and the QC report. The advantage over
+  CellRanger is that it is much more "lightweight" and will run with lower
+  memory requirements in a shorter time.
+* **[Alevin](https://salmon.readthedocs.io/en/latest/alevin.html)** - This tool
+  is based on the popular Salmon tool for bulk RNAseq feature counting..............
+  Alevin supports both 10x-Chromium and Drop-seq derived data ..................   
+* Something about DropSeq etc. ................   
+* Any other....................???     
 
-```{r variables_cellRanger}
-#wrkDir <- "/mnt/scratchb/bioinformatics/baller01/20200511_FernandesM_ME_crukBiSs2020/CaronBourque2020/grch38300"
-#setwd(wrkDir)
-projDir <- params$projDir
-#projDirLink <- "/Users/baller01/MyMount/svr008ssd/20200511_FernandesM_ME_crukBiSs2020"
-projDirLink <- gsub("/ssd/personal/baller01", "/Users/baller01/MyMount/svr008ssd", projDir)
-inpDirBit <- params$inpDirBit # "AnaWiSeurat/Attempt1"
-outDirBit <- params$outDirBit # "AnaWiSeurat/Attempt1"
-plotDir <- "QcPlots"
+For the purposes of this course, seeing as we are working with 10x-Chromium
+derived data, we will use Cell Ranger.
 
-# eg # cellrangerDirLink <- sprintf("%s/%s/grch38300", projDirLink, "CaronBourque2020")
-```
+## 10X Cell Ranger pipeline in brief
 
-## 10X cellranger pipeline in brief
+The Cell Ranger tools actually incorporates a number of different analysis 
+pipelines for handling different components of the single cell RNAseq analysis.
+In this chapter we will be using the `count` tool, later in the course you will 
+encounter the `aggr` (aggregate) tool, which can be used to merge mutliple samples
+into a single experiment-level data set. 
 
-Each sample was analysed separately with [cellranger](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger).
-This pipeline "is a set of analysis pipelines that process Chromium single-cell RNA-seq output to align reads, generate feature-barcode matrices and perform clustering and gene expression analysis."
+In addition to the analysis tools, Cell Ranger also includes a tools to
+generate a custom Cell Ranger reference from genomic and transcriptomic
+references.
 
-**TODO** Add code to call cellranger
+### Installing Cell Ranger
+
+Full installation instruction can be found on the 
+(10x website)[https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/installation].
+
+### Cell Ranger references
+
+The Cell Ranger software, like other aligners, requires the information about
+the genome and transcriptome of interest to be provided in a specific format.
+If you are working with the standard genome/transcriptome of human or mouse
+then you can download prebuilt references from the [10x
+website](https://support.10xgenomics.com/single-cell-gene-expression/software/downloads/latest)
+(there is even a combined genome reference, which is useful for PDX based
+experiments).
+
+If you require a reference for the genome of another species, or wish to add 
+custom transcripts to the gene annotation (e.g. fusion genes), then you will 
+need to build your own index. We will not go into detail here about this, but
+it is a relatively straightforward process and you can find instructions 
+[here](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/references).
+
+### Running Cell Ranger count
+
+Full details can be found on the 
+[10x website](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/using/tutorial_ct).
+
+#### Preparing the raw fastq files
+
+To run Cell Ranger the fastq files for samples to be processed should be placed
+in a single directory. Cell Ranger will be run separately on each file, you
+will need to provide the software with the index (e.g. SIGAA6) of the sample to
+be processed. Cell Ranger expects the file names of the fastq files to follow a
+specific convention so that it can correctly identify the files for the
+specific sample. If the files names of your fastqs do not match this convention
+you will need to modify them.
+
+The convention is:
+
+
+
+
+
 
 ## sample sheet
 
