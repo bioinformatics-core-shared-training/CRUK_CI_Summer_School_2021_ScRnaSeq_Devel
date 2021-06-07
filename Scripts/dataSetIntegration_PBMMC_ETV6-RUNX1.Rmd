@@ -3,28 +3,16 @@ title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysi
 subtitle: 'Data integration'
 author: "Stephane Ballereau, Abbi Edwards"
 output:
-  html_notebook:
-    code_folding: hide
-    toc: yes
-    toc_float: yes
-    number_sections: true
   html_document:
     df_print: paged
     toc: yes
     number_sections: true
     code_folding: hide
-  html_book:
+  html_notebook:
     code_folding: hide
-params:
-  projDir: "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
-  dirRel: ".."
-  inpDirBit: "AnaWiSce/Ana1"
-  outDirBit: "AnaWiSce/Ana1"
-  bookType: "mk"
-  cacheBool: FALSE  
-  setName: "caron"
-  setSuf: "_5hCellPerSpl"
-  splSetToGet: "PBMMC,ETV6-RUNX1"
+    toc: yes
+    toc_float: yes
+    number_sections: true
 ---
 
 # Data integration - PBMMC and ETV6-RUNX samples
@@ -37,7 +25,7 @@ params:
 
 - 
 
-```{r library_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, include=FALSE}
+```{r library_PBMMC_ETV6-RUNX1, warning=FALSE, message=FALSE}
 library(ggplot2)
 library(scater)
 library(scran)
@@ -48,8 +36,7 @@ library(pheatmap)
 library(clustree)
 library(Cairo)
 library(BiocSingular)
-
-fontsize <- theme(axis.text=element_text(size=12), axis.title=element_text(size=16))
+library(cowplot)
 ```
 
 
@@ -75,8 +62,12 @@ objects in a `large list` for ease of running the following steps but it is no d
 
 
 ```{r load_PBMMC_ETV6-RUNX1}
-all.sce <- readRDS("DataIntergration_all_sce.rds")
+all.sce <- readRDS("../RobjectsReadOnly/DataIntergration_all_sce.rds")
 all.sce
+```
+
+```{r, sampleSheet, message=FALSE}
+sampleSheet <- read_tsv("sampleSheet_for_DI.tsv")
 ```
 
 We then apply the standard workflow to each sample separately:
@@ -175,6 +166,7 @@ Before we actually perform any correction, it is worth examining whether there i
 # concat matrices:
 uncorrected <- do.call(cbind, rescaled)
 
+
 # Perform PCA
 # Using RandomParam() as it is more efficient for file-backed matrices.
 set.seed(0010101010)
@@ -193,18 +185,15 @@ snn.gr <- buildSNNGraph(uncorrected, use.dimred="PCA")
 # identify cluster with the walk trap method
 clusters <- igraph::cluster_walktrap(snn.gr)$membership
 # get number of cells for each {cluster, batch} pair
-#tab <- table(Cluster=clusters, Batch=uncorrected$batch)
-#tab
-clusterTab <- table("clusters"=clusters, "batch"=uncorrected$Sample.Name)
+clusterTab <- data.frame("clusters"=clusters, "batch"=uncorrected$Sample.Name)
 ```
 
 Cluster size and cell contribution by sample:
 
 ```{r clusPlotdata, warning=FALSE, message=FALSE}
 ClusterInfo <- clusterTab %>% 
-  as.data.frame() %>%
   group_by(clusters,batch) %>%
-  summarise(cells = n())
+  summarise(cells = n()) 
 ```
 
 ```{r diagPlotDraw_PBMMC_ETV6-RUNX1, fig.height=6, fig.width=7,warning=F}
@@ -219,7 +208,8 @@ p2 <- ggplot(data=clusterTab, aes(x=clusters, fill=batch)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
   ggtitle("uncorrected, proportions") +
   theme(legend.text = element_text(size = 7))
-gridExtra::grid.arrange(p1, p2)
+
+plot_grid(p1,p2,ncol=1)
 ```
 
 We can also visualize the uncorrected coordinates using a t-SNE plot. The strong separation between cells from different batches is consistent with the clustering results.
@@ -273,11 +263,10 @@ clusters.linear <- igraph::cluster_walktrap(snn.gr.linear)$membership
 clusterTab.linear <- data.frame("clusters"=clusters.linear, "batch"=linear_rescaled$batch)
 ```
 
-Cluster size and cell contribution by sample, with clusters sorted by size:
+Cluster size and cell contribution by sample:
 
-```{r linReg_diagPlotDraw_PBMMC_ETV6-RUNX1 }
+```{r linReg_diagPlotDraw_PBMMC_ETV6-RUNX1, message=FALSE}
 ClusterInfo.linear <- clusterTab.linear %>% 
-  as.data.frame() %>%
   group_by(clusters,batch) %>%
   summarise(cells = n())
 ```
@@ -292,7 +281,7 @@ lp2 <- ggplot(data=clusterTab.linear, aes(x=clusters, fill=batch)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
   scale_y_continuous(labels = scales::percent) +
   theme(legend.text = element_text(size = 7))
-gridExtra::grid.arrange(lp1, lp2)
+plot_grid(lp1,lp2,ncol=1)
 ```
 
 Compute and plot t-SNE:
@@ -367,7 +356,7 @@ clusterTab.mnn <- data.frame(clusters=clusters.mnn, batch=mnn.out$Sample.Name, s
 
 Cluster size and cell contribution by sample, with clusters sorted by size:
 
-```{r fastmnn_diagPlotDrawSampleName_PBMMC_ETV6-RUNX1, fig.height=6, fig.width=7}
+```{r fastmnn_diagPlotDrawSampleName_PBMMC_ETV6-RUNX1, fig.height=6, fig.width=7, message=FALSE}
 ClusterInfo.mnn <- clusterTab.mnn %>% 
   as.data.frame() %>%
   group_by(clusters,batch) %>%
@@ -383,12 +372,12 @@ mp2 <- ggplot(data=clusterTab.mnn, aes(x=clusters, fill=batch)) +
   scale_y_continuous(labels = scales::percent) +
   theme(legend.text = element_text(size = 7))
 
-gridExtra::grid.arrange(mp1, mp2)
+plot_grid(mp1, mp2, ncol=1)
 ```
 
-Cluster size and cell contribution by sample type, with clusters sorted by size:
+Cluster size and cell contribution by sample type:
 
-```{r fastmnn_diagPlotDrawSampleType_PBMMC_ETV6-RUNX1, fig.height=6, fig.width=7}
+```{r fastmnn_diagPlotDrawSampleType_PBMMC_ETV6-RUNX1, fig.height=6, fig.width=7,message=FALSE}
 ClusterInfo.mnn.source <- clusterTab.mnn %>% 
   as.data.frame() %>%
   group_by(clusters,source) %>%
@@ -402,7 +391,7 @@ mp2.s <- ggplot(data=clusterTab.mnn, aes(x=clusters, fill=source)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
   scale_y_continuous(labels = scales::percent)
 
-gridExtra::grid.arrange(mp1.s, mp2.s)
+plot_grid(mp1.s, mp2.s, ncol=1)
 ```
 
 We can also compute the variation in the log-abundances to rank the clusters with the greatest variability in their proportional abundances across batches. We can then focus on batch-specific clusters that may be indicative of incomplete batch correction. Obviously, though, this diagnostic is subject to interpretation as the same outcome can be caused by batch-specific populations; some prior knowledge about the biological context is necessary to distinguish between these two possibilities. The table below shows the number of cells for each cluster (row) and sample (column) together with the variance in cell number across these samples ('var' column). 
@@ -410,7 +399,6 @@ We can also compute the variation in the log-abundances to rank the clusters wit
 Also bear in mind that the variance is computed across 7 samples here and only serves to sort clusters.
 
 ```{r fastmnn_diagVarComp_PBMMC_ETV6-RUNX1}
-# Avoid minor difficulties with the 'table' class.
 tab.mnn <- table(clusters=clusterTab.mnn$clusters, sampleName=clusterTab.mnn$batch)
 
 # Using a large pseudo.count to avoid unnecessarily
@@ -432,21 +420,13 @@ set.seed(0010101010)
 mnn.out <- runTSNE(mnn.out, dimred="corrected")
 mnn.out <- runUMAP(mnn.out, dimred="corrected")
 
-mnn.out$batch <- factor(mnn.out$batch)
-mp.tsne <- plotTSNE(mnn.out, colour_by="Sample.Name", shape_by = "source_name")
-mp.tsne
-
 ```
 
-```{r fastmnn_diagTsnePlot2_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7}
-mp.tsne + facet_wrap(. ~ mnn.out$source_name)
-```
+### Challenge 1
 
-```{r tsne compare}
-library(cowplot)
-plot_grid(p.tsne,mp.tsne)
-```
+Draw the TSNE for the fastmnn corrected data. Compare it with the uncorrected TSNE, what do you think?
 
+Find the challenge markdown for this section in the course materials folder.
 
 
 For `fastMNN()`, one useful diagnostic is the proportion of variance within each batch that is lost during MNN correction. Specifically, this refers to the within-batch variance that is removed during orthogonalization with respect to the average correction vector at each merge step. This is returned via the `lost.var` field in the metadata of `mnn.out`, which contains a matrix of the variance lost in each batch (column) at each merge step (row).
@@ -463,8 +443,7 @@ The following t-SNE shows the clusters identified:
 ```{r fastmnn_diagTsneClu_PBMMC_ETV6-RUNX1}
 mp.tsne.cluster <- plotTSNE(mnn.out, colour_by="label", shape_by="source_name")
 mp.tsne.cluster
-#mp.umap.cluster <- plotUMAP(mnn.out, colour_by ="label", shape_by="source_name")
-#mp.umap.cluster
+
 ```
 
 ```{r fastmnn_diagTsneCluBySampleName_dsi{{setSuf}}_PBMMC_ETV6-RUNX1}
@@ -606,43 +585,6 @@ gridExtra::grid.arrange(pBu + theme(legend.position="bottom"),
                         ncol=2)
 ```
 
-Other genes (exercise)
-
-```{r exerCellTypeMarkerList_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
-genesToShow2 <- c(
-		 "IL7R", # IL7R, CCR7 	Naive CD4+ T
-		 "CCR7", # IL7R, CCR7 	Naive CD4+ T
-		 "S100A4", # IL7R, S100A4 	Memory CD4+
-		 "CD14", # CD14, LYZ 	CD14+ Mono
-		 "LYZ", # CD14, LYZ 	CD14+ Mono
-		 "MS4A1", # MS4A1 	B
-		 "CD8A", # CD8A 	CD8+ T
-		 "FCGR3A", # FCGR3A, MS4A7 	FCGR3A+ Mono
-		 "MS4A7", # FCGR3A, MS4A7 	FCGR3A+ Mono
-		 "GNLY", # GNLY, NKG7 	NK
-		 "NKG7", # GNLY, NKG7 	NK
-		 "FCER1A", # DC
-		 "CST3", # DC
-		 "PPBP" # Platelet
-		)
-```
-
-```{r exerCellTypeMarkerList2_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
-tmpInd <- which(rowData(uncorrected)$Symbol %in% genesToShow2)
-ensToShow <- rowData(uncorrected)$ensembl_gene_id[tmpInd]
-table(ensToShow %in% rownames(rowData(mnn.out)))
-ensToShow <- ensToShow[ensToShow %in% rownames(rowData(mnn.out))]
-```
-
-```{r exerCellTypeMarkerPlot_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
-for (genex in ensToShow)
-{
-	p <- plotTSNE(mnn.out, colour_by = genex, by_exprs_values="reconstructed")
-	p <- p + ggtitle(paste(genex, rowData(uncorrected)[genex,"Symbol"]))
-	print(p)
-}
-```
-
 ### Preserving biological heterogeneity
 
 #### Comparison between within-batch clusters and across-batch clusters obtained after MNN correction
@@ -654,38 +596,19 @@ Ideally, we should see a many-to-1 mapping where the across-batch clustering is 
 One heatmap is generated for each dataset, where each entry is colored according to the number of cells with each pair of labels (before and after correction), on the log10 scale with pseudocounts (+10) for a smoother color transition (so a minimum value of log10(0+10) == 1). 
 
 ```{r, heatmaps}
-tab34 <- table(paste("after", clusters.mnn[linear_rescaled$batch=="GSM3872434"]),
+tabE1 <- table(paste("after", clusters.mnn[linear_rescaled$batch=="ETV6-RUNX1_1"]),
                paste("before", colLabels(rescaled[[1]])))
-heat34 <- pheatmap(log10(tab34 +10), cluster_rows = FALSE, cluster_cols = FALSE,
-                   main = "GSM3872434", silent = TRUE)
-tab35 <- table(paste("after", clusters.mnn[linear_rescaled$batch=="GSM3872435"]),
-               paste("before", colLabels(rescaled[[1]])))
-heat35 <- pheatmap(log10(tab34 +10), cluster_rows = FALSE, cluster_cols = FALSE,
-                   main = "GSM3872435", silent = TRUE)
-tab36 <- table(paste("after", clusters.mnn[linear_rescaled$batch=="GSM3872436"]),
-               paste("before", colLabels(rescaled[[1]])))
-heat36 <- pheatmap(log10(tab34 +10), cluster_rows = FALSE, cluster_cols = FALSE,
-                   main = "GSM3872436", silent = TRUE)
-tab37 <- table(paste("after", clusters.mnn[linear_rescaled$batch=="GSM3872437"]),
-               paste("before", colLabels(rescaled[[1]])))
-heat37 <- pheatmap(log10(tab34 +10), cluster_rows = FALSE, cluster_cols = FALSE,
-                   main = "GSM3872437", silent = TRUE)
-tab42 <- table(paste("after", clusters.mnn[linear_rescaled$batch=="GSM3872442"]),
-               paste("before", colLabels(rescaled[[1]])))
-heat42 <- pheatmap(log10(tab34 +10), cluster_rows = FALSE, cluster_cols = FALSE,
-                   main = "GSM3872442", silent = TRUE)
-tab43 <- table(paste("after", clusters.mnn[linear_rescaled$batch=="GSM3872443"]),
-               paste("before", colLabels(rescaled[[1]])))
-heat43 <- pheatmap(log10(tab34 +10), cluster_rows = FALSE, cluster_cols = FALSE,
-                   main = "GSM3872443", silent = TRUE)
-tab44 <- table(paste("after", clusters.mnn[linear_rescaled$batch=="GSM3872444"]),
-               paste("before", colLabels(rescaled[[1]])))
-heat44 <- pheatmap(log10(tab34 +10), cluster_rows = FALSE, cluster_cols = FALSE,
-                   main = "GSM3872444", silent = TRUE)
-
-gridExtra::grid.arrange(heat34[[4]],heat35[[4]],heat36[[4]],heat37[[4]],
-                        heat42[[4]],heat43[[4]],heat44[[4]])
+heatE1 <- pheatmap(log10(tabE1 +10), cluster_rows = FALSE, cluster_cols = FALSE,
+                   main = "ETV6-RUNX1_1")
+heatE1
 ```
+
+#### Challenge 2
+
+Can you draw the heatmaps for the other samples and decide if you think the correction looks satisfactory?
+
+Find the Challenge markdown for this section in the course material folder.
+
 
 
 The redistribution of cells from one set of clusters to another, here 'within-batch before' and 'across-batch after' correction, may also be visualized with a clustering tree [clustree](https://cran.r-project.org/package=clustree). See the Extra section at the end of this chapter.
@@ -756,7 +679,7 @@ gridExtra::grid.arrange(grobs = grobList,
 
 We suggest limiting the use of per-gene corrected values to visualization, e.g., when coloring points on a t-SNE plot by per-cell expression. This can be more aesthetically pleasing than uncorrected expression values that may contain large shifts on the colour scale between cells in different batches. Use of the corrected values in any quantitative procedure should be treated with caution, and should be backed up by similar results from an analysis on the uncorrected values.
 
-```{r consis_mnnoutSaveRds_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, warning=F}
+```{r consis_mnnoutSaveRds_PBMMC_ETV6-RUNX1, warning=F}
 # save the mnn.out object in a file
 
 saveRDS(mnn.out, file="DataIntergration_mnn.out.rds")
@@ -765,6 +688,45 @@ saveRDS(mnn.out, file="DataIntergration_mnn.out.rds")
 
 
 ## Extra things to try
+
+### Other genes
+
+```{r exerCellTypeMarkerList_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
+genesToShow2 <- c(
+		 "IL7R", # IL7R, CCR7 	Naive CD4+ T
+		 "CCR7", # IL7R, CCR7 	Naive CD4+ T
+		 "S100A4", # IL7R, S100A4 	Memory CD4+
+		 "CD14", # CD14, LYZ 	CD14+ Mono
+		 "LYZ", # CD14, LYZ 	CD14+ Mono
+		 "MS4A1", # MS4A1 	B
+		 "CD8A", # CD8A 	CD8+ T
+		 "FCGR3A", # FCGR3A, MS4A7 	FCGR3A+ Mono
+		 "MS4A7", # FCGR3A, MS4A7 	FCGR3A+ Mono
+		 "GNLY", # GNLY, NKG7 	NK
+		 "NKG7", # GNLY, NKG7 	NK
+		 "FCER1A", # DC
+		 "CST3", # DC
+		 "PPBP" # Platelet
+		)
+```
+
+```{r exerCellTypeMarkerList2_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
+tmpInd <- which(rowData(uncorrected)$Symbol %in% genesToShow2)
+ensToShow <- rowData(uncorrected)$ensembl_gene_id[tmpInd]
+table(ensToShow %in% rownames(rowData(mnn.out)))
+ensToShow <- ensToShow[ensToShow %in% rownames(rowData(mnn.out))]
+```
+
+```{r exerCellTypeMarkerPlot_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
+for (genex in ensToShow)
+{
+	p <- plotTSNE(mnn.out, colour_by = genex, by_exprs_values="reconstructed")
+	p <- p + ggtitle(paste(genex, rowData(uncorrected)[genex,"Symbol"]))
+	print(p)
+}
+```
+
+### Clustree
 
 ```{r biolHet_comp_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, warning=FALSE, eval=F}
 plotList <- vector(mode = "list", length = length(splVec))

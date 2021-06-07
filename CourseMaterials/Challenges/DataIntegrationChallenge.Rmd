@@ -6,7 +6,18 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(scater)
+library(scran)
+library(batchelor)
+library(bluster)
+library(tidyverse)
+library(pheatmap)
+library(clustree)
+library(Cairo)
+library(BiocSingular)
+library(cowplot)
+
 ```
 
 ## Loading the data you need
@@ -14,13 +25,29 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r Load}
 
+p.tsne <- readRDS("../Robjects/DataIntergration_p.tsne.rds")
+mnn.out <- readRDS("../Robjects/DataIntergration_mnn.out.rds")
+
+clusters.mnn <- readRDS("../Robjects/DataIntergration_clusters.mnn.rds")
+linear_rescaled <- readRDS("../Robjects/DataIntergration_linear_rescaled.rds")
+rescaled <- readRDS("../Robjects/DataIntergration_rescaled.rds")
+
 ```
 
-## Challenge
+## Challenge 1
 
-You can also embed plots, for example:
+Draw the TSNE for the fastmnn corrected data. Compare it with the uncorrected TSNE, what do you think?
 
-```{r yourCode, echo=FALSE}
+```{r yourCode1}
+
+
+```
+
+## Challenge 2
+
+Can you draw the heatmaps for the other samples and decide if you think the correction looks satisfactory?
+
+```{r yourCode2}
 
 
 
