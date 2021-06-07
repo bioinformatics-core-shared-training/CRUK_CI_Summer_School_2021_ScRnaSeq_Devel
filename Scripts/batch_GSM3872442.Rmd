@@ -2,7 +2,6 @@
 title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
 subtitle: 'batch correction - 500 cells per sample'
 
-author: "Stephane Ballereau, Zeynep Kalender Atak, Katarzyna Kania"
 output:
   html_notebook:
     code_folding: hide
@@ -47,14 +46,10 @@ set.seed(123) # for reproducibility
 
 ## Learning objectives
 
-<style>
-div.blue {background-color:#e6f0ff; border-radius: 5px; padding: 20px;}
-</style>
-<div class = "blue">
 * bla
 * bla
 * bla
-</div>
+
 
 ## Data
 

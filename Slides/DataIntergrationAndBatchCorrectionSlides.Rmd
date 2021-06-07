@@ -1,0 +1,64 @@
+---
+title: "Data Integration and Batch Correction"
+author: "Abbi Edwards"
+date: '7th June 2021'
+output:
+  ioslides_presentation:
+    widescreen: true
+    smaller: true
+    logo: ../Images/CRUK_CC_whiteBgd.jpg
+    css: css/stylesheet.css
+---
+
+```{r include=FALSE}
+library(tidyr)
+library(dplyr)
+
+```
+
+## Workflow
+
+<div style="line-height: 50%;"><br></div>
+
+<img src="../Images/workflow.svg" class="centerimg" style="width: 60%; margin-top: 60px;">
+
+## Why do we need to think about data intergration?
+
+Text
+
+## Formatting our data
+
+Text
+
+## Normalisation
+
+* bla
+
+* bla
+
+* bla
+
+## Cellranger aggr
+
+## Checking for batch effects
+
+## Batch Corrections
+
+## Linear Models
+
+## SCTransform
+
+## MNN correct
+
+## FastMNN
+
+## Harmony
+
+## Checking our correction has worked
+
+## Checking our correction hasn't over worked
+
+## Using the corrected values
+
+
+
