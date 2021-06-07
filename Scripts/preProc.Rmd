@@ -56,8 +56,6 @@ We will then:
 # Load packages
 
 ```{r libraries_preProc}
-library(SingleCellExperiment)
-library(Matrix)
 library(DropletUtils)
 library(scater)
 library(ensembldb)
@@ -68,8 +66,6 @@ library(patchwork)
 library(ggvenn)
 ```
 
-* SingleCellExperiment - to store the data
-* Matrix - to deal with sparse and/or large matrices
 * DropletUtils - utilities for the analysis of droplet-based, inc. cell counting
 * scater - QC
 * ensembldb & AnnotationHub - for gene annotation
@@ -354,9 +350,9 @@ We could also look at the distribution of counts for individual genes across all
 cells. The plot below shows this distribution for the top 20 genes detected.
 
 ```{r}
-rel_expression <- t( t(counts(sce)) / Matrix::colSums(counts(sce))) * 100
+rel_expression <- t( t(counts(sce)) / colSums(counts(sce))) * 100
 rownames(rel_expression) <- rowData(sce)$Symbol
-most_expressed <- sort(Matrix::rowSums( rel_expression ),T)[20:1]
+most_expressed <- sort(rowSums( rel_expression ),T)[20:1]
 plot_data <- as.matrix(t(rel_expression[names(most_expressed),]))
 
 boxplot(plot_data, cex=0.1, las=1, xlab="% total count per cell", horizontal=TRUE)
