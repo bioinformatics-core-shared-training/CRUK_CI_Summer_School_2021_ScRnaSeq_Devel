@@ -40,50 +40,81 @@ readr::read_tsv("Data/sample_sheet.tsv") %>%
 	datatable(rownames = FALSE, options = list(dom="t", pageLength=20))
 ```
 
-
 # 10x library file structure (version 3 chemistry)
 
-The 10x library contains for pieces of information, in the form of DNA sequences,
-for each "Read".
+## Sequences
 
-![](Images/10x_v3_Library_Structure.png)
-`r knitr::knit_exit()`
+The 10x library contains four pieces of information, in the form of DNA sequences,
+for each "fragmenti/insert".
 
-
-* The **sample index** identifies the library, with one I7 index per sample
+* The **sample index** identifies the library, with one or two indexes per sample
 * The 10X **cell barcode** (or cell index) identifies the droplet in the library
 * The **UMI** identifies the transcript molecule within a cell and gene
 * The **insert** is the transcript molecule, ie the cDNA sequence
 
-Each sample is described with three sets of fastq files:
+Previously, only single indexing was used for the samples, more recently 10x
+have introduced dual-indexing. This is primarily useful in mitigating the 
+effects of index swapping, which can occur when samples are mixed. Though a very
+rare event, if our samples are only indexed by a single index, then an index
+swap will make a read appear to come from the wrong sample. Dual indexing
+avoids this as it would require both indexes to be swapped for the both of the
+indexes from another sample, an extremely unlikely event.
 
-* **I1**: sample index
+The different sample barcodes are identified by a code; "SIGA[A-H][1-12]" for 
+single indexing and "SITT[A-H][1-12]" for dual indexing. Specifications for the
+single indexes can be found
+[here](https://support.10xgenomics.com/single-cell-gene-expression/index/doc/specifications-sample-index-sets-for-single-cell-3)
+and for the dual indexes
+[here](https://support.10xgenomics.com/spatial-gene-expression/sequencing/doc/specifications-sample-index-sets-for-visium-spatial-gene-expression)
+
+For single sample indexes, reads from each sample are labelled with any one of
+a set of four possible 8-nt oligo (8 nt paired oligos if dual indexed) .  For
+example, sample index SIGAB8 is 'AAAGTGCT-GCTACCTG-TGCTGTAA-CTGCAAGC'.  All
+four are used and are identified by a digit, eg 1-4.  In this way, the number
+of possible unique SampleIndex+UMI combinations is increased four-fold.
+Depending on the processing pipeline, fastq files may be returned for each
+8-ntd index, or combined into a single file.
+
+![](Images/tenxLibStructureV3.png)
+
+For dual indexs, each index has just one I7 and one I5 index, but the I5 varies
+with the library prep protocol. e.g.  SITTB6 is I7 = AATGCCATGA and I5 =
+TACGTAATGC (for forward stranded workflow) or I5 = GCATTACGTA (for reverse
+stranded workflow).
+
+![](Images/tenxLibStructureV3dual.png)
+
+## Raw fastq files
+
+The sequences for any given fragment will generally be delivered in 3 or 4
+files:
+
+* **I1**: I7 sample index
+* **I2**: I5 sample index if present (dual indexing only)
 * **R1**: 10x barcode + UMI
 * **R2**: insert sequence
 
-The sample index is actually a set of four 8-ntd oligo.
-For example SIGAB8 is 'AAAGTGCT-GCTACCTG-TGCTGTAA-CTGCAAGC'.
-All four are used and identified by a digit, eg 1-4.
-Depending on the processing pipeline, fastq files may be returned for each 8-ntd index, or combined into a single file.
+Depending on the exact sequencing processing pipeline, instances of multiple
+sample indexes for single indexed libraries may be combined into a single file
+or maybe be provided separately (meaning 12 fastq files per sample, per lane of
+sequencing).  
 
-For the Caron data set they are combined in a single file, and files for separate lanes were also combined into a single fastq file.
+Similarly, naming conventions for the files will vary according to the processing
+pipeline, but at the least the filenames need to include the sample barcode ID. 
+The following is an example of the file naming convention for files delivered 
+from the CRUK Genomics Core 10x processing pipeline:
 
-Each sample is identified by three fastq files, one per read type:
 
-* **sample** _ S0 _ L001 _ **I1** _ 001 _ .fastq.gz: contains sample index
-* **sample** _ S0 _ L001 _ **R1** _ 001 _ .fastq.gz: contains 10x barcode + UMI
-* **sample** _ S0 _ L001 _ **R2** _ 001 _ .fastq.gz: contains insert sequence
 
-We kept the same names for the fastqc output. With for example sample 'SRR9264343':
 
-* **SRR9264343** _ S0 _ L001 _ **I1** _ 001 _ fastqc.html
-* **SRR9264343** _ S0 _ L001 _ **R1** _ 001 _ fastqc.html
-* **SRR9264343** _ S0 _ L001 _ **R2** _ 001 _ fastqc.html
 
-```{r}
-fastqcDir <- sprintf("%s/Data/%s/fastqc", projDir, "CaronBourque2020")
-fastqcDirLink <- sprintf("%s/Data/%s/fastqc", projDirLink, "CaronBourque2020")
-```
+
+
+
+`r knitr::knit_exit()`
+
+
+
 
 ## CaronBourque2020 - fastqc
 
