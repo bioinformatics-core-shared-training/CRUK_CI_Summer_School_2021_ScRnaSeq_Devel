@@ -289,17 +289,6 @@ colData(sce) <- colData(sce) %>%
 colData(sce)
 ```
 
-Let's save the object for future reference.
-
-```{r dataSets_writeRds, eval=FALSE}
-saveRDS(sce, "results/sce_pooled_samples.rds")
-```
-
-
-```{r dataSets_readRds, echo=FALSE, eval=FALSE}
-sce <- readRDS("results/sce_pooled_samples.rds")
-```
-
 # Properties of scRNA-seq data
 
 ## Number of genes detected per cell
@@ -453,16 +442,6 @@ rowData(sce) <- merge(rowData(sce), gene_annot, by = "ID", sort=FALSE)
 rownames(rowData(sce)) <- rowData(sce)$ID
 
 rowData(sce)
-```
-
-
-```{r dataSets_writeRds2, eval=FALSE}
-saveRDS(sce, "results/sce_pooled_samples_annot.rds")
-```
-
-
-```{r dataSets_readRds2, echo=FALSE, eval=FALSE}
-sce <- readRDS("results/sce_pooled_samples_annot.rds")
 ```
 
 Number of genes per chromosome, including 13 on the mitochondrial genome:
@@ -994,15 +973,7 @@ sce.Filtered
 We also write the R object to file to use later if need be.
 
 ```{r qc_write_rds, eval=FALSE}
-saveRDS(sce.Filtered, "Course_Materials/results/sce_filtered.rds")
-```
-
-```{r qc_write_rds_bkp, echo=FALSE, eval=FALSE}
-saveRDS(sce, "Course_Materials/results/sce_filters_marked.rds")
-```
-
-```{r qc_read_rds, eval=FALSE, echo=FALSE}
-sce <- readRDS("Course_Materials/results/sce_filters_marked.rds")
+saveRDS(sce.Filtered, "results/sce_filtered.rds")
 ```
 
 # QC and Filtering based on sparsity
@@ -1105,12 +1076,6 @@ colData(sce.caron) <- colData(sce.caron)[,1:3]
 sce.caron <- addPerCellQC(sce.caron, BPPARAM = bp.params)
 rowData(sce.caron) <- rowData(sce.caron)[,1:4]
 sce.caron <- addPerFeatureQC(sce.caron, BPPARAM = bp.params)
-```
-
-Write the object out to a file for later use.
-
-```{r sparsity_write, eval=FALSE}
-saveRDS(sce.caron.nz, "results/sce.caron_nz_postQc.Rds")
 ```
 
 # Novelty
