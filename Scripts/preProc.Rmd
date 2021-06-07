@@ -1102,9 +1102,9 @@ data set. We need to remove them, and if necessary recalculate them.
 
 ```{r}
 colData(sce.caron) <- colData(sce.caron)[,1:3]
-sce.caron <- addPerCellQC(sce.caron)
+sce.caron <- addPerCellQC(sce.caron, BPPARAM = bp.params)
 rowData(sce.caron) <- rowData(sce.caron)[,1:4]
-sce.caron <- addPerFeatureQC(sce.caron)
+sce.caron <- addPerFeatureQC(sce.caron, BPPARAM = bp.params)
 ```
 
 Write the object out to a file for later use.
