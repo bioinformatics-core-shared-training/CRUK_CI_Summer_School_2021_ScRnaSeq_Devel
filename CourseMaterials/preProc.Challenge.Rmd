@@ -4,7 +4,7 @@ subtitle: 'Quality Control - Challenge'
 author: "Stephane Ballereau, Ashley Sawle"
 output:
   html_notebook:
-    code_folding: show
+    code_folding: hide
     toc: yes
     toc_float: yes
     number_sections: true
@@ -86,12 +86,11 @@ sce <- readRDS("Robjects/Caron_data.sce.annot.rds")
 ## Check samples in the data set
 
 Use the `colData` function to check that the samples you have in the `sce` 
-object are the ones you are expecting (all of the Caron data set).
+object are the ones you are expecting (all of the Caron data set). Add your 
+code into the code chunk below.
 
 ```{r}
-colData(sce)
-caronSamples <- filter(samplesheet, DatasetName=="Caron") %>% pull(SampleId)
-all(caronSamples%in%colData(sce)$Sample)
+
 ```
 
 # Filter undetected genes
@@ -102,15 +101,14 @@ been detected in any droplet.
 What fraction of the genes are not detected?
 
 ```{r detected_genes}
-detected_genes <- rowSums(counts(sce)) > 0
-table(detected_genes)
+
 ```
 
 Remove these before proceeding in order to reduce the size of the single cell
 experiment object.
 
 ```{r remove_undetected_genes}
-sce <- sce[detected_genes,]
+
 ```
 
 # Quality control
@@ -131,9 +129,7 @@ cell, your will need to pass the function a vector indicating which genes are
 mitochondrial.
 
 ```{r qc_addPerCellQC}
-is.mito <- which(rowData(sce)$Chromosome=="MT")
 
-sce <- addPerCellQC(sce, subsets=list(Mito=is.mito), BPPARAM = bp.params)
 ```
 
 Check that the function has added six columns to the droplet annotation:
@@ -145,10 +141,8 @@ Check that the function has added six columns to the droplet annotation:
 * **subsets_Mito_percent**: percentage of reads mapped to mitochondrial transcripts
 * **total**: also the total UMI count
 
-```{r qc_addPerCellQCTab, eval=TRUE}
-head(colData(sce)) %>%
-	as.data.frame() %>%
-	datatable(rownames = FALSE)
+```{r qc_addPerCellQCTab}
+
 ```
 
 ## QC metric distribution
@@ -170,18 +164,15 @@ plotColData(sce, x="Sample", y="sum",other_fields="SampleGroup") +
 ### Number of Genes detected
 
 ```{r qc_detectedFeatures, fig.width=12, fig.height=4}
-plotColData(sce, x="Sample", y="detected", other_fields="SampleGroup") + 
-        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
-        scale_y_log10() + 
-        ggtitle("Detected features")
+
+
 ```
 
 ### Percentage of UMIs mapped to mitochondrial transcripts
 
 ```{r qc_MTcontent, fig.width=12, fig.height=4}
-plotColData(sce, x="Sample", y="subsets_Mito_percent", other_fields="SampleGroup") + 
-        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") +
-        ggtitle("Mito percent")
+
+
 ```
 
 # Identification of low-quality cells with adaptive thresholds
@@ -194,6 +185,8 @@ distribution).
 
 ## Add the filters
 
+### Library Size
+
 ```{r adapThreshold_librarySize}
 low_lib_size <- isOutlier(sce$sum, log=TRUE, type="lower")
 sce$low_lib_size <- low_lib_size
@@ -202,20 +195,19 @@ sce$low_lib_size <- low_lib_size
 ### Number of Genes detected
 
 ```{r adapThreshold_detectedFeatures}
-low_n_features <- isOutlier(sce$detected, log=TRUE, type="lower")
-sce$low_n_features <- low_n_features
+
 ```
 
 ### Percentage of UMIs mapped to mitochondrial transcripts
 
 ```{r adapThreshold_MTcontent}
-high_Mito_percent <- isOutlier(sce$subsets_Mito_percent, type="higher")
-sce$high_Mito_percent <- high_Mito_percent
+
 ```
 
 ## Visualise results
 
-Let's have a look at how these filters would affect the data set.
+Let's have a look at how these filters would affect the data set. Replace
+`XXXXXXX` with the appropriate column name from the `colData`.
 
 ### Library Size
 
@@ -224,7 +216,7 @@ plotColData(sce,
             x="Sample", 
             y="sum",
             other_fields="SampleGroup", 
-            colour_by = "low_lib_size") + 
+            colour_by = XXXXXXX) + 
         facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
         scale_y_log10() + 
         labs(y = "Total count", title = "Total count") +
@@ -238,7 +230,7 @@ plotColData(sce,
             x="Sample", 
             y="detected",
             other_fields="SampleGroup", 
-            colour_by = "low_n_features") + 
+            colour_by = XXXXXXX) + 
         facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
         scale_y_log10() + 
         labs(y = "Genes detected", title = "Genes detected") +
@@ -252,7 +244,7 @@ plotColData(sce,
             x="Sample", 
             y="subsets_Mito_percent",
             other_fields="SampleGroup", 
-            colour_by = "high_Mito_percent") + 
+            colour_by = XXXXXXX) + 
         facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
         labs(y = "Percentage mitochondrial UMIs",
              title = "Mitochondrial UMIs") +
@@ -270,25 +262,25 @@ function to perform all three filters and add a parameter for the batch (this
 could be any column in the `colData` or you could add a new one).
 
 ```{r quickPerCellQC_batch_compute}
-batch.reasons <- quickPerCellQC(colData(sce),
-                                percent_subsets=c("subsets_Mito_percent"),
-                                batch=sce$Sample)
+
 ```
 
 The table below shows how the thresholds for each metric differ between the
-batch-wise analysis and the analysis using all samples.
+batch-wise analysis and the analysis using all samples. You'll need
+to replace `XXXXXXX` with the appropriate vector for the original filtering, and
+the appropriate slot of the `batch.reasons` object.
 
 ```{r}
 all.thresholds <- tibble(`Batch`="All",
-       `Library Size`=attr(low_lib_size, "thresholds")[1],
-       `Genes detected`=attr(low_n_features, "thresholds")[1],
-       `Mitochondrial UMIs`=attr(high_Mito_percent, "thresholds")[2])
+       `Library Size`=attr(XXXXXXX, "thresholds")[1],
+       `Genes detected`=attr(XXXXXXX, "thresholds")[1],
+       `Mitochondrial UMIs`=attr(XXXXXXX, "thresholds")[2])
 
 
-tibble(`Batch`=names(attr(batch.reasons$low_lib_size, "thresholds")[1,]),
-       `Library Size`=attr(batch.reasons$low_lib_size, "thresholds")[1,],
-       `Genes detected`=attr(batch.reasons$low_n_features, "thresholds")[1,],
-       `Mitochondrial UMIs`=attr(batch.reasons$high_subsets_Mito_percent, "thresholds")[2,]) %>% 
+tibble(`Batch`=names(attr(batch.reasons[[1]], "thresholds")[1,]),
+       `Library Size`=attr(batch.reasons$XXXXXXX, "thresholds")[1,],
+       `Genes detected`=attr(batch.reasons$XXXXXXX, "thresholds")[1,],
+       `Mitochondrial UMIs`=attr(batch.reasons$XXXXXXX, "thresholds")[2,]) %>% 
     bind_rows(all.thresholds) %>% 
     mutate(across(where(is.numeric), round, digits=2)) %>% 
     datatable(rownames = FALSE)
@@ -300,14 +292,11 @@ Once you have decided how best to filter the data you should remove the
 droplets that do not pass your criteria from the data set. 
 
 Replace the filter columns in the droplet annotation with your chosen filters
-and then create a fourth column that combines the three filters into a single
-boolean vector.
+and then create a fourth column called `discard` that combines the three filters
+into a single boolean vector.
 
 ```{r set_filter_columns}
-sce$low_lib_size <- batch.reasons$low_lib_size
-sce$low_n_features <- batch.reasons$low_n_features
-sce$high_Mito_percent <- batch.reasons$high_subsets_Mito_percent
-sce$discard <- sce$low_lib_size | low_n_features | high_Mito_percent
+
 ```
 
 Now exclude poor-quality cells from the SingleCellExperiment object and save the
@@ -326,29 +315,25 @@ metrics, as some of them were calculated across all genes. Save this final
 object as _results/Caron_filtered_genes.rds_.
 
 ```{r filter_genes}
-sce <- addPerFeatureQC(sce, BPPARAM = bp.params)
-rowData(sce)$gene_sparsity <- (100 - rowData(sce)$detected) / 100
-min.cells <- 1 - (20 / ncol(sce))
-sparse.genes <- rowData(sce)$gene_sparsity > min.cells
+
 ```
 
 Generate a table showing the number of genes removed
 
 ```{r check_filter}
-table(sparse.genes)
+
 ```
 
 Filter the genes.
 
 ```{r}
-sce <- sce[!sparse.genes, ]
+
 ```
 
 Replace the Cell metrics
 
 ```{r}
-colData(sce) <- colData(sce)[,1:3]
-sce <- addPerCellQC(sce, BPPARAM = bp.params)
+
 ```
 
 Write the object out to a file in the `results` directory  for later use.

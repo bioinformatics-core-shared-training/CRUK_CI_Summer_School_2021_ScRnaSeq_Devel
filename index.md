@@ -89,7 +89,8 @@ The various analysis steps are bundled into a bookdown.
 - 13:30 - 14:15 Introduction <!-- []() --> <!-- Kania - lecture -->
 - 14:15 - 14:30 Preamble: data set and workflow <!-- []() --> <!-- Stephane - 'lecture' -->
 - 14:30 - 15:55 library structure, cellranger for alignment and cell calling, preprocessing <!-- []() --> <!-- Ash -->
-    * [QC and preprocessing](data/proProc.html)
+    * [QC and preprocessing](data/proProc.html)   
+    <!--    * [Solutions to challenge](data/preProc.Challenge.Solution.nb.html)   -->
 - 15:55 - 16:05 **10 min break**
 - 16:05 - 17:30 normalisation <!-- []() --> <!-- Stephane -->
   
