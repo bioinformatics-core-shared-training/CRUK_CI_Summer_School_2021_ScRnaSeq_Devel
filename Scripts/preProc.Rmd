@@ -493,7 +493,7 @@ The function has added six columns to the droplet annotation:
 * **detected**: number of features (genes) detected
 * **subsets_Mito_sum**: number of UMIs mapped to mitochondrial transcripts
 * **subsets_Mito_detected**: number of mitochondrial genes detected
-* **subsets_Mito_percent**: percentage of reads mapped to mitochondrial transcripts
+* **subsets_Mito_percent**: percentage of UMIs mapped to mitochondrial transcripts
 * **total**: also the total UMI count
 
 We will use **sum**, **detected**, and **subsets_Mito_percent** to further
