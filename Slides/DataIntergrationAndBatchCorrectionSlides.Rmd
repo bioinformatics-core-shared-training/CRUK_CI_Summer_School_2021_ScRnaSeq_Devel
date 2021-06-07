@@ -30,14 +30,6 @@ Text
 
 Text
 
-## Normalisation
-
-* bla
-
-* bla
-
-* bla
-
 ## Cellranger aggr
 
 ## Checking for batch effects
