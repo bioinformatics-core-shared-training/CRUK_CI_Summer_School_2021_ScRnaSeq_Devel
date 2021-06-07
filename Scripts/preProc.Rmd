@@ -759,11 +759,9 @@ We will first need to add a "batch" column to the droplet annotation that
 identifies samples from the Caron paper and samples from the HCA.
 
 ```{r quickPerCellQC_batch_compute}
-sce$setName <- ifelse(str_detect(sce$SampleGroup, "ABMMC"), "HCA", "Caron")
-
 batch.reasons <- quickPerCellQC(colData(sce),
                                 percent_subsets=c("subsets_Mito_percent"),
-                                batch=sce$setName)
+                                batch=sce$DatasetName)
 
 as.data.frame(batch.reasons) %>%
     summarise(across(everything(), sum)) %>% 
@@ -848,7 +846,7 @@ to when the MAD filtering was applied across all samples.
 ```{r, fig.width=12, fig.height=8}
 libDat <- tibble(`All together`=reasons$low_lib_size, 
                  `By batch`=batch.reasons$low_lib_size,
-                 Batch=sce$setName)
+                 Batch=sce$DatasetName)
     
 ph1 <- libDat %>% 
     dplyr::filter(Batch=="HCA") %>% 
@@ -861,7 +859,7 @@ pc1 <- libDat %>%
 
 nGenDat <- tibble(`All together`=reasons$low_n_features, 
                   `By batch`=batch.reasons$low_n_features,
-                 Batch=sce$setName)
+                 Batch=sce$DatasetName)
 ph2 <- nGenDat %>% 
     dplyr::filter(Batch=="HCA") %>% 
         ggvenn(show_percentage = FALSE) +
@@ -874,7 +872,7 @@ pc2 <- nGenDat %>%
 
 mitDat <- tibble(`All together`=reasons$high_subsets_Mito_percent, 
        `By batch`=batch.reasons$high_subsets_Mito_percent,
-                 Batch=sce$setName)
+                 Batch=sce$DatasetName)
 ph3 <- mitDat %>% 
     dplyr::filter(Batch=="HCA") %>% 
         ggvenn(show_percentage = FALSE) +
@@ -1020,7 +1018,7 @@ sparsity of the data, both at the gene and cell levels.
 To illustrate this we will just consider the Caron samples.
 
 ```{r sparsity_split}
-sce.caron <- sce[,sce$setName=="Caron"]
+sce.caron <- sce[,sce$DatasetName=="Caron"]
 ```
 
 ## Sparsity plots
