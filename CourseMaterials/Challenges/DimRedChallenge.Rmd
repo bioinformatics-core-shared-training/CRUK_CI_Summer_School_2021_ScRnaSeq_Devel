@@ -1,0 +1,36 @@
+---
+title: "Dimensionality Reduction Challenge"
+author: "eynep Kalender Atak"
+date: "07/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(scater)
+library(scran)
+```
+
+## Loading the data you need
+
+
+```{r Load}
+sce <- readRDS("caron_sce_nz_postDeconv_5hCellPerSpl.Rds")
+```
+
+## Challenge 1
+
+Select top 2000 highly variable genes, calculate PCs and identify PCs linked to biological variation (using denoisePCA command). How many PCs remain after denoising? 
+
+```{r yourCode1}
+
+```
+
+## Challenge 2
+
+Can you plot t-SNE and UMAP with your chosen PCs.  
+
+```{r yourCode2}
+
+```
+
