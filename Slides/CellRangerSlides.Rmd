@@ -1,0 +1,147 @@
+---
+title: "Alignment and feature counting"
+author: "Ashley Sawle"
+date: 'Today'
+output:
+  ioslides_presentation:
+    widescreen: true
+    smaller: true
+    logo: Images/CRUK_CC_whiteBgd.jpg
+    css: css/stylesheet.css
+---
+
+## 10x library file structure
+
+The 10x library contains four pieces of information, in the form of DNA sequences,
+for each "read".
+
+* **sample index** - identifies the library, with one or two indexes per sample
+* **10x barcode** -  identifies the droplet in the library
+* **UMI** - identifies the transcript molecule within a cell and gene
+* **insert** - the transcript molecule
+
+```{r echo=FALSE, out.width='60%', fig.align='center'}
+knitr::include_graphics('Images/tenxLibStructureV3.png')
+```
+
+```{r echo=FALSE, out.width='60%', fig.align='center'}
+knitr::include_graphics('Images/tenxLibStructureV3dual.png')
+```
+
+## Raw fastq files
+
+The sequences for any given fragment will generally be delivered in 3 or 4
+files:
+
+* **I1**: I7 sample index
+* **I2**: I5 sample index if present (dual indexing only)
+* **R1**: 10x barcode + UMI
+* **R2**: insert sequence
+
+## QC of Raw Reads
+
+* FASTQC:
+
+```{r echo=FALSE, out.width='20%', fig.align='center'}
+knitr::include_graphics('Images/FastQC_logo.png')
+```
+
+## Alignment and counting
+
+The first steps in the analysis of single cell RNAseq data:
+
+* Align reads to genome  
+* Annotate reads with feature (gene) 
+* Quantify gene expression
+
+## Cell Ranger
+
+* 10x Cell Ranger -  This not only carries out the alignment and feature
+  counting, but will also:
+    * Call cells
+    * Generate a summary report in html format
+    * Generate a "cloupe" file
+
+Alternative methods include:
+
+* STAR solo:
+    * Generates outputs very similar to CellRanger minus the cloupe file and the QC report
+    * Will run with lower memory requirements in a shorter time than Cell Ranger
+* Alevin:
+    * Based on the popular Salmon tool for bulk RNAseq feature counting
+    * Alevin supports both 10x-Chromium and Drop-seq derived data
+* Something about DropSeq etc. ................   
+
+## Obtaining Cell Ranger {#less_space_after_title}
+
+```{r echo=FALSE, out.width='70%', fig.align='center'}
+knitr::include_graphics('Images/CellRangerWebsite.png')
+```
+
+## Cell Ranger tools
+
+Cell Ranger includes a number of different tools for analysing scRNAseq data,
+including:
+* `cellranger mkref` - for making custom references
+* `cellranger count` - for aligning reads and generating a count matrix
+* `cellranger aggr` - for combining multiple samples and normalising the counts
+
+## Preparing the raw fastq files
+
+Cell Ranger requires the fastq file names to follow a convention:
+
+```
+<SampleName>_S<SampleNumber>_L00<Lane>_<Read>_001.fastq.gz
+```
+
+e.g. for a single samples in the Caron data set we have:
+
+```
+    SRR9264343_S0_L001_I1_001.fastq.gz
+    SRR9264343_S0_L001_R1_001.fastq.gz
+    SRR9264343_S0_L001_R2_001.fastq.gz
+```
+
+## Genome/Transcriptome Reference
+
+As with other aligners Cell Ranger requires the information about
+the genome and transcriptome of interest to be provided in a specific format.
+
+* Obtain from the 10x website for human or mouse (or both - PDX)
+* Build a custom reference with `cellranger mkref`
+
+## Running `cellranger count`
+
+```{r echo=FALSE, out.width='70%', fig.align='center'}
+knitr::include_graphics('Images/CellRangerCommand.png')
+```
+
+
+## Cell Ranger outputs
+```{r echo=FALSE, out.width='70%', fig.align='center'}
+knitr::include_graphics('Images/CellRangerOutput.png')
+```
+
+## Cell Ranger outputs
+
+```{r echo=FALSE, out.width='70%', fig.align='center'}
+knitr::include_graphics('Images/CellRangerOutputOuts.png')
+```
+
+## Cell Ranger cell calling {#less_space_after_title}
+
+```{r echo=FALSE, out.width='70%', fig.align='center'}
+knitr::include_graphics('Images/BarcodeRankPlot.png')
+```
+
+## Cell Ranger report {#less_space_after_title}
+
+```{r echo=FALSE, out.width='60%', fig.align='center'}
+knitr::include_graphics('Images/CellRangerReport.png')
+```
+
+## Loupe Browser {#less_space_after_title}
+
+```{r echo=FALSE, out.width='80%', fig.align='center'}
+knitr::include_graphics('Images/LoupeBrowser.png')
+```
