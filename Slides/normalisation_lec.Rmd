@@ -1,5 +1,5 @@
 ---
-title: "Normalisation"
+title: "Introduction to single-cell RNA-seq analysis - Normalisation"
 author: "Stephane Ballereau"
 date: "May 2021"
 output:
@@ -71,7 +71,7 @@ library size relative to the other cells.
   * for each cell
   * by dividing counts by the library size then multiplying by 1.000.000.
 * does not adress compositional bias caused by highly expressed genes that are also
-differentially expressed betwenn cells.
+differentially expressed between cells.
 
 ## Examples
 
@@ -88,13 +88,14 @@ This method is also known as 'Relative Log Expression' (RLE) in `edgeR` and `sca
 
 ## Deconvolution
 
-```{r, out.width = '30%'}
+```{r, echo=FALSE, out.width = '50%'}
 knitr::include_graphics("../Images/scran_Fig3.png", auto_pdf = TRUE)
 ```
 
 ## Deconvolution
 
 Steps:
+
 * compute scaling factors,
 * apply scaling factors
 
@@ -110,13 +111,13 @@ and providing residuals to use as normalized and variance-stabilized expression 
 
 ## SCTransform
 
-```{r, out.width = '30%'}
+```{r, echo=FALSE, out.width = '40%'}
 knitr::include_graphics("../Images/sctransform1.png", auto_pdf = TRUE)
 ```
 
 ## SCTransform
 
-```{r, out.width = '30%'}
+```{r, echo=FALSE, out.width = '40%'}
 knitr::include_graphics("../Images/sctransform2.png", auto_pdf = TRUE)
 ```
 
