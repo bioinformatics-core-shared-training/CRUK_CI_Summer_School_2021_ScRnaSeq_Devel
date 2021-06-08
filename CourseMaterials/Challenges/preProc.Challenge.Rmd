@@ -55,7 +55,7 @@ meta data table that relates the sample/run ID to the sample group. This is the
 metadata for all samples from both data sets.
 
 ```{r samplesheet_preProc, message=FALSE}
-samplesheet <- read_tsv("Data/sample_sheet.tsv")
+samplesheet <- read_tsv("../Data/sample_sheet.tsv")
 ```
 
 ```{r samplesheet_display_preProc}
@@ -78,7 +78,7 @@ bp.params <- MulticoreParam(workers = 7)
 ### Load the data
 
 ```{r}
-sce <- readRDS("Robjects/Caron_data.sce.annot.rds")
+sce <- readRDS("../Robjects/Caron_data.sce.annot.rds")
 ```
 
 # QC
@@ -304,7 +304,7 @@ final object to the `results` directory for later use.
 
 ```{r filter_cells}
 sce.Filtered <- sce[,!sce$discard]
-saveRDS(sce.Filtered, "results/Caron_filtered.rds")
+saveRDS(sce.Filtered, "../results/Caron_filtered.rds")
 ```
 
 # Optional: Filter genes
@@ -339,7 +339,7 @@ Replace the Cell metrics
 Write the object out to a file in the `results` directory  for later use.
 
 ```{r}
-saveRDS(sce, "results/Caron_filtered_genes.rds")
+saveRDS(sce, "../results/Caron_filtered_genes.rds")
 ```
 
 ## Session information
