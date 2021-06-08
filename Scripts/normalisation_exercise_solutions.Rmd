@@ -1,0 +1,410 @@
+---
+title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
+subtitle: 'Normalisation - GSM3872434 sample'
+
+author: "Stephane Ballereau"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    number_sections: true
+    code_folding: hide
+  html_notebook:
+    code_folding: hide
+    toc: yes
+    toc_float: yes
+    number_sections: true
+  html_book:
+    code_folding: hide
+---
+
+# Normalisation - Exercises {#NormalisationChallengeTop}
+
+Exercise: apply the deconvolution and SCTransform normalisations methods on a
+single sample: ETV6-RUNX1_1 (aka GSM3872434).
+
+```{r norm_Caron.knitr_options, echo=FALSE, results="hide", message=FALSE}
+cacheBool <- !TRUE
+require(knitr)
+opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
+opts_chunk$set(fig.width=7, fig.height=7)
+#opts_chunk$set(dev="CairoPNG")
+set.seed(123) # for reproducibility
+```
+
+```{r GSM3872434_variables_norm}
+#normPlotDirBit <- "Plots/Norm" # not use anymore
+
+projDir <- ".." # or /home/ubuntu/CourseMaterials/scRNAseq
+dirRel <- ".."
+outDirBit <- "CourseMaterials"
+setName <- tolower("Caron")
+writeRds <- TRUE # FALSE
+```
+
+```{r libraries_norm_GSM3872434_allCells, include=FALSE, results='hide', message=FALSE, warning=FALSE}
+library(scater)
+library(scran)
+library(ggplot2)
+library(dplyr)
+library(BiocSingular)
+#library(Cairo)
+library(BiocParallel)
+
+bpp <- MulticoreParam(7)
+```
+
+## Load object
+
+```{r GSM3872434_readIn}
+getwd()
+# Read object in:
+dir("../CourseMaterials/Robjects/")
+tmpFn <- "../CourseMaterials/Robjects/Caron_filtered.rds"
+sce <- readRDS(tmpFn)
+sce
+
+# PATCH names
+samplesheet <- readr::read_tsv("../CourseMaterials/Data/sample_sheet.tsv")
+samplesheet %>%
+	as.data.frame() %>%
+	DT::datatable(rownames = FALSE, options = list(dom="tpl", nrows=20))
+
+dd <- colData(sce) %>% data.frame()
+dd$SampleId <- dd$Sample
+dd <- dd  %>%
+  left_join(samplesheet[, c("SampleId", "SampleName")], by="SampleId") %>%
+  DataFrame()
+colData(sce) <- dd
+```
+
+Select cells for ETV6-RUNX1_1:
+
+```{r GSM3872434_downsample_variables, eval=TRUE}
+setSuf <- "_ETV6-RUNX1_1"
+```
+
+```{r GSM3872434_downsample, eval=TRUE}
+# have new list of cell barcodes for each sample
+sce.nz.master <- sce
+vec.bc <- colData(sce.nz.master) %>%
+	data.frame() %>%
+	filter(SampleName == "ETV6-RUNX1_1") %>%
+	group_by(SampleName) %>%
+	pull(Barcode)
+```
+
+Number of cells in the sample:
+
+```{r GSM3872434_barcodes}
+table(colData(sce.nz.master)$Barcode %in% vec.bc)
+```
+
+Subset cells from the SCE object:
+
+```{r GSM3872434_subset_sce}
+tmpInd <- which(colData(sce.nz.master)$Barcode %in% vec.bc)
+sce <- sce.nz.master[,tmpInd]
+#sce
+```
+
+Check columns data:
+
+```{r GSM3872434_SampleName_table}
+head(colData(sce))
+table(colData(sce)$SampleName)
+```
+
+<!--
+# mind that genes were filtered using all cells, not just those sampled here.
+-->
+
+## Deconvolution
+
+Cluster cells then normalise.
+
+### Cluster cells
+
+```{r comp_quickClus_norm_GSM3872434_allCells, eval=TRUE}
+set.seed(100) # clusters with PCA from irlba with approximation
+clust <- quickCluster(sce) # slow with all cells.
+table(clust)
+```
+
+### Compute size factors
+
+```{r calculateSumFactors_norm_GSM3872434_allCells, eval=TRUE}
+# deconvolve
+sce <- computeSumFactors(sce, cluster=clust, min.mean=0.1)
+# set size factors
+deconv.sf <- sizeFactors(sce)
+# size factors distribution summary
+summary(deconv.sf)
+```
+
+Plot deconvolution size factors against library size factors:
+
+```{r scatter_deconvSf_libSf_prep_norm_GSM3872434_allCells}
+
+lib.sf <- librarySizeFactors(sce)
+
+deconvDf <- data.frame(lib.sf, deconv.sf,
+			"SampleGroup" = sce$SampleGroup,
+			"sum" = sce$sum,
+			"mito_content" = sce$subsets_Mito_percent)
+```
+
+```{r scatter_deconvSf_libSf_colBy_sourceName_plot_norm_GSM3872434_allCells, eval=FALSE}
+# colour by sample type
+sp <- ggplot(deconvDf, aes(x=lib.sf, y=deconv.sf, col=SampleGroup)) +
+  geom_point()
+
+# Split by sample type:
+#sp + facet_wrap(~source_name)
+```
+
+```{r scatter_deconvSf_libSf_colBy_more_norm_GSM3872434_allCells, include=FALSE}
+# colour by library size
+sp <- ggplot(deconvDf, aes(x=lib.sf, y=deconv.sf, col=sum)) +
+  geom_point()
+sp
+```
+
+### Apply size factors
+
+<!--
+For each cell, raw counts for genes are divided by the size factor for that cell
+and log-transformed so downstream analyses focus on genes with strong relative
+differences. We use `scater::logNormCounts()`.
+-->
+
+```{r logNormCounts_norm_GSM3872434_allCells}
+sce <- logNormCounts(sce) # adds logcounts
+print(assayNames(sce))
+```
+
+## SCTransform
+
+<!--
+With scaling normalisation a correlation remains between the mean and variation
+of expression (heteroskedasticity). This affects downstream dimensionality
+reduction as the few main new dimensions are usually correlated with library
+size. SCTransform addresses the issue by regressing library size out of raw
+counts and providing residuals to use as normalized and variance-stabilized
+expression values in downstream analysis. We will use the
+[sctransform vignette](https://cran.r-project.org/web/packages/sctransform/index.html).
+-->
+
+Get UMI counts matrix:
+
+```{r counts_sct_GSM3872434_allCells}
+counts <- counts(sce)
+colnames(counts) <- colData(sce)$Barcode
+```
+
+### Inspect data
+
+<!--
+We will now calculate some properties and visually inspect the data. Our main
+interest is in the general trends not in individual outliers. Neither genes nor
+cells that stand out are important at this step, but we focus on the global trends.
+-->
+
+Derive gene and cell attributes from the UMI matrix.
+
+```{r attr_comp_sct_GSM3872434_allCells}
+gene_attr <- data.frame(mean = rowMeans(counts), 
+                        detection_rate = rowMeans(counts > 0),
+                        var = apply(counts, 1, var))
+gene_attr$log_mean <- log10(gene_attr$mean)
+gene_attr$log_var <- log10(gene_attr$var)
+rownames(gene_attr) <- rownames(counts)
+cell_attr <- data.frame(n_umi = colSums(counts),
+                        n_gene = colSums(counts > 0))
+rownames(cell_attr) <- colnames(counts)
+```
+
+Mean-variance relationship
+
+<!--
+For the genes, we can see that up to a mean UMI count of 0 the variance follows
+the line through the origin with slop one, i.e. variance and mean are roughly
+equal as expected under a Poisson model. However, genes with a higher average
+UMI count show overdispersion compared to Poisson.
+-->
+
+```{r attr_plot_sct_GSM3872434_allCells}
+ggplot(gene_attr, aes(log_mean, log_var)) + 
+  geom_point(alpha=0.3, shape=16) + 
+  geom_density_2d(size = 0.3) +
+  geom_abline(intercept = 0, slope = 1, color='red')
+```
+
+Mean-detection-rate relationship
+
+<!--
+In line with the previous plot, we see a lower than expected detection rate in the medium expression range. However, for the highly expressed genes, the rate is at or very close to 1.0 suggesting that there is no zero-inflation in the counts for those genes and that zero-inflation is a result of overdispersion, rather than an independent systematic bias.
+-->
+
+```{r scatter_detecRate_logMean_sct_GSM3872434_allCells}
+# add the expected detection rate under Poisson model
+x = seq(from = -3, to = 2, length.out = 1000)
+poisson_model <- data.frame(log_mean = x, detection_rate = 1 - dpois(0, lambda = 10^x))
+ggplot(gene_attr, aes(log_mean, detection_rate)) + 
+  geom_point(alpha=0.3, shape=16) + 
+  geom_line(data=poisson_model, color='red') +
+  theme_gray(base_size = 8)
+```
+
+### Transformation
+
+<!--
+"Based on the observations above, which are not unique to this particular data
+set, we propose to model the expression of each gene as a negative binomial
+random variable with a mean that depends on other variables. Here the other
+variables can be used to model the differences in sequencing depth between
+cells and are used as independent variables in a regression model. In order to 
+avoid overfitting, we will first fit model parameters per gene, and then use
+the relationship between gene mean and parameter values to fit parameters,
+thereby combining information across genes. Given the fitted model parameters,
+we transform each observed UMI count into a Pearson residual which can be
+interpreted as the number of standard deviations an observed count was away
+from the expected mean. If the model accurately describes the mean-variance
+relationship and the dependency of mean and latent factors, then the result
+should have mean zero and a stable variance across the range of expression."
+[sctransform vignette](https://cran.r-project.org/web/packages/sctransform/index.html).
+-->
+
+Estimate model parameters and transform data
+
+<!--
+The vst function estimates model parameters and performs the variance stabilizing
+transformation. Here we use the log10 of the total UMI counts of a cell as variable
+for sequencing depth for each cell. After data transformation we plot the model
+parameters as a function of gene mean (geometric mean).
+-->
+
+```{r comp_sct_GSM3872434_allCells, warning=FALSE}
+print(dim(counts))
+# We use the Future API for parallel processing; set parameters here
+future::plan(strategy = 'multicore', workers = 4)
+options(future.globals.maxSize = 10 * 1024 ^ 3)
+
+set.seed(44)
+vst_out <- sctransform::vst(counts,
+                            latent_var = c('log_umi'),
+                            return_gene_attr = TRUE,
+                            return_cell_attr = TRUE,
+                            show_progress = FALSE)
+sctransform::plot_model_pars(vst_out)
+```
+
+Inspect model:
+
+```{r model_show_sct_GSM3872434_allCells}
+print(vst_out$model_str)
+```
+
+We will look at several genes in more detail.
+
+```{r plot_model_1_sct_GSM3872434_allCells}
+#sctransform::plot_model(vst_out, counts, c('MALAT1', 'RPL10', 'FTL'), plot_residual = TRUE)
+rowData(sce) %>%
+  as.data.frame %>%
+  filter(Symbol %in% c('RPL10', 'FTL'))
+
+sctransform::plot_model(vst_out,
+                        counts,
+                        c('ENSG00000147403', 'ENSG00000087086'),
+                        plot_residual = TRUE)
+```
+
+Distribution of residual mean:
+
+```{r plot_model_resMean_sct_GSM3872434_allCells}
+ggplot(vst_out$gene_attr, aes(residual_mean)) +
+  geom_histogram(binwidth=0.01)
+```
+
+Distribution of residual variance:
+
+```{r plot_model_resVar_sct_GSM3872434_allCells}
+ggplot(vst_out$gene_attr, aes(residual_variance)) +
+  geom_histogram(binwidth=0.1) +
+  geom_vline(xintercept=1, color='red') +
+  xlim(0, 10)
+```
+
+Variance against mean (residuals):
+
+```{r plot_model_resVar_resMean_sct_GSM3872434_allCells}
+ggplot(vst_out$gene_attr, aes(x=residual_mean, y=residual_variance)) +
+	geom_point(alpha=0.3, shape=16) + 
+  xlim(0, quantile(vst_out$gene_attr$residual_mean, probs=0.95)) +
+	ylim(0, quantile(vst_out$gene_attr$residual_variance, probs=0.95)) +
+	geom_density_2d()
+```
+
+Variance against mean (genes):
+
+```{r plot_model_resVar_gMean_sct_GSM3872434_allCells}
+ggplot(vst_out$gene_attr,
+       aes(log10(gmean), residual_variance)) +
+       geom_point(alpha=0.3, shape=16) +
+       geom_density_2d(size = 0.3)
+```
+
+Check genes with large residual variance:
+
+```{r table_show_sct_GSM3872434_allCells}
+dd <- vst_out$gene_attr %>%
+	arrange(-residual_variance) %>%
+	slice_head(n = 22) %>%
+	mutate(across(where(is.numeric), round, 2))
+
+dd %>% tibble::rownames_to_column("ID") %>%
+	left_join(as.data.frame(rowData(sce))[,c("ID", "Symbol")], "ID") %>%
+	DT::datatable(rownames = FALSE)
+```
+
+Check transformed values:
+
+```{r check_trans_sct_GSM3872434_allCells}
+print(dim(vst_out$y))
+vst_out$y[1:10,1:5]
+```
+
+Genes that are expressed in fewer than 5 cells are not used and not returned,
+so to add vst_out$y as an assay we need to remove the missing genes.
+
+```{r subsetGenes_sct_GSM3872434}
+# genes that are expressed in fewer than 5 cells are not used and not returned
+# so to add vst_out$y as an assay we need to ditch the missing genes completely.
+# https://github.com/ChristophH/sctransform/issues/27
+
+#rownames(vst_out$y)
+
+sceOrig <- sce
+sceOrig
+tmpInd <- which(rownames(sce) %in% rownames(vst_out$y))
+cols.meta <- colData(sceOrig)
+rows.meta <- rowData(sceOrig)
+
+new.counts <- counts(sceOrig)[tmpInd, ]
+sce <- SingleCellExperiment(list(counts=new.counts))
+
+# reset the column data on the new object
+colData(sce) <- cols.meta
+rowData(sce) <- rows.meta[tmpInd, ]
+assayNames(sce)
+```
+Copy normalised counts:
+
+```{r copyVstMat_sct_GSM3872434}
+vstMat <- as(vst_out$y[rownames(sce),], "dgCMatrix")
+all(colnames(vstMat) == sce$Barcode)
+colnames(vstMat) <- NULL
+assay(sce, "sctrans_norm") <- vstMat # as(vst_out$y[rownames(sce),], "dgCMatrix")
+#assayNames(sce)
+sce
+```
