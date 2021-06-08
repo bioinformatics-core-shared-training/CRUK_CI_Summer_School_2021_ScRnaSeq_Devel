@@ -11,13 +11,6 @@ output:
     code_folding: hide
 ---
 
-**WORKING DOCUMENT - IN PROGRESS**
-
-<!--
-TODO:
--->
-
-
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=FALSE)
 knitr::opts_chunk$set(echo=FALSE)
@@ -62,15 +55,17 @@ Alternative methods include:
 * Any other....................???     
 
 For the purposes of this course, seeing as we are working with 10x-Chromium
-derived data, we will use Cell Ranger.
+derived data, we will use Cell Ranger. As detailed instructions are available
+on the Cell Ranger pages of the 10x website, this chapter will not be
+comprehensive in terms of all option, but should provide a bried overview.
 
 ## 10X Cell Ranger pipeline in brief
 
-The Cell Ranger tools actually incorporates a number of different analysis 
+The Cell Ranger tools actually incorporates a number of different analysis
 pipelines for handling different components of the single cell RNAseq analysis.
-In this chapter we will be using the `count` tool, later in the course you will 
-encounter the `aggr` (aggregate) tool, which can be used to merge mutliple samples
-into a single experiment-level data set. 
+In this chapter we will be using the `count` tool, later in the course you will
+encounter the `aggr` (aggregate) tool, which can be used to merge mutliple
+samples into a single experiment-level data set. 
 
 In addition to the analysis tools, Cell Ranger also includes a tools to
 generate a custom Cell Ranger reference from genomic and transcriptomic
@@ -79,7 +74,7 @@ references.
 ### Installing Cell Ranger
 
 Full installation instruction can be found on the 
-(10x website)[https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/installation].
+[10x website](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/installation).
 
 ### Cell Ranger references
 
@@ -97,7 +92,7 @@ need to build your own index. We will not go into detail here about this, but
 it is a relatively straightforward process and you can find instructions 
 [here](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/references).
 
-### Running Cell Ranger count
+### Cell Ranger count
 
 Full details can be found on the 
 [10x website](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/using/tutorial_ct).
@@ -112,79 +107,118 @@ specific convention so that it can correctly identify the files for the
 specific sample. If the files names of your fastqs do not match this convention
 you will need to modify them.
 
-The convention is:
+The convention is the default convention used by `bcl2fastq` which processes
+the raw sequencing data into fastq format:
 
-
-
-
-
-
-## sample sheet
-
-```{r}
-# CaronBourque2020
-cb_sampleSheetFn <- file.path(projDir, "Data/CaronBourque2020/SraRunTable.txt")
-# Human Cell Atlas
-hca_sampleSheetFn <- file.path(projDir, "Data/Hca/accList_Hca.txt")
-
-# read sample sheet in:
-splShtColToKeep <- c("Run", "Sample.Name", "source_name")
-
-cb_sampleSheet <- read.table(cb_sampleSheetFn, header=T, sep=",")
-hca_sampleSheet <- read.table(hca_sampleSheetFn, header=F, sep=",")
-colnames(hca_sampleSheet) <- "Sample.Name"
-hca_sampleSheet$Run <- hca_sampleSheet$Sample.Name
-hca_sampleSheet$source_name <- "ABMMC" # adult BMMC
-
-sampleSheetCat <- rbind(cb_sampleSheet[,splShtColToKeep], hca_sampleSheet[,splShtColToKeep])
+```
+<SampleName>_S<SampleNumber>_L00<Lane>_<Read>_001.fastq.gz
 ```
 
-```{r}
-sampleSheetCat %>%
-	#DT::datatable(options = list(dom='t'))
-	DT::datatable(options = list(pageLength = 10))
+* **\<SampleName\>** - An identifier for the sample, this is what Cell Ranger
+  uses to determine which fastq files to combine into a single sample.
+* **\<SampleNumber\>** - This is the sample number based on the order that
+  samples were listed in the sample sheet used when running `bcl2fastq`. This
+  is not important for Cell Ranger, other than it indicates the end of the
+  Sample Name, you can set all your samples to S1.
+* **\<Lane\>** - The lane number. If your sequencing was run across mutliple
+  lanes, then you may have multiple sets of fastqs for a single sample with
+  different lane numbers.
+* **\<Read\>** - The read. **R1** for Read 1, **R2** for Read 2, and index
+  reads are **I1** and **I2**.
+* **001**  - The last segment is always 001.
+
+e.g. for a single samples in the Caron data set we have:
+
+```
+    SRR9264343_S0_L001_I1_001.fastq.gz
+    SRR9264343_S0_L001_R1_001.fastq.gz
+    SRR9264343_S0_L001_R2_001.fastq.gz
 ```
 
-## 10X cellranger reports for CaronBourque2020
+#### Running `cellranger count`
 
-```{r, results = 'asis'}
-#cellrangerDir <- sprintf("%s/%s/grch38300", projDir, "CaronBourque2020")
-#projDirOsx <- "/Users/baller01/MyMount/clust1b/20200511_FernandesM_ME_crukBiSs2020"
+The minimum information require to run `cellranger count` is:
 
-# make dir name for each sample of interest
-# with 'Run' column
+* **--id** - A sample ID. This is used for naming the outputs   
+* **--transcriptome** - the directory containing the Cell Ranger reference   
+* **--fastqs** - the directory containing the fastq files
 
-sampleSheet <- sampleSheetCat %>%
-	filter(! source_name == "ABMMC")
+This will process all fastq files in the `fastqs` directory into a single
+sample. If you have multiple samples in a single directory then you need to
+add:
 
-cellrangerDirLink <- sprintf("%s/Data/%s/grch38300", projDirLink, "CaronBourque2020")
-htmlVec <- sprintf("%s/%s/%s/outs/web_summary.html", cellrangerDirLink, sampleSheet$Run, sampleSheet$Run)
-names(htmlVec) <- sampleSheet$Run
+* **--sample** - the SampleName from the fastq files as above.
 
-for(i in 1:length(htmlVec)){
-	cat("[", names(htmlVec)[i], "](", htmlVec[i],")\n\n")
-}
+In addition, Cell Ranger is very computationally intensive, you will usually
+be wanting to run it on a high performance cluster or server, and it is 
+advisable to set limits to the resources it will use:
 
-# TODO: add links to sample sheet and show with DT::datatable
+* **--localcores** - the number of processors Cell Ranger should use   
+* **--localmem** - the amount of memory, in Gigabytes, Cell Ranger should use.
+
+e.g:
+
+```
+cellranger count --id=SRR9264343 \
+                 --transcriptome=refdata-gex-mm10-2020-A \
+                 --fastqs=fastq \
+                 --sample=SRR9264343 \
+                 --localcores=8 \
+                 --localmem=64
 ```
 
-## 10X cellranger reports for HCA's adult BMMCs
+### Cell Ranger outputs
 
-```{r, results = 'asis'}
-#cellrangerDir <- sprintf("%s/%s/grch38300", projDir, "CaronBourque2020")
-#projDirOsx <- "/Users/baller01/MyMount/clust1b/20200511_FernandesM_ME_crukBiSs2020"
+Cell Ranger will create a single folder for the sample names as per the `--id` option
+in the command. In the top level of the directory is a directory called `outs`, this 
+contains the results of the analysis pipeline. There are also many intermediate
+and log files/directories that will not be of immediate interest.
 
-# make dir name for each sample of interest
-# with 'Run' column
+The contents of the sample directory will look like this:
 
-sampleSheet <- sampleSheetCat %>%
-	filter(source_name == "ABMMC")
+![](Images/CellRangerOutput.png){width=50%}
 
-cellrangerDirLink <- sprintf("%s/Data/%s/grch38300", projDirLink, "Hca")
-htmlVec <- sprintf("%s/%s/%s/outs/web_summary.html", cellrangerDirLink, sampleSheet$Run, sampleSheet$Run)
-names(htmlVec) <- sampleSheet$Run
+The contents of the output directory are:
 
-for(i in 1:length(htmlVec)){
-	cat("[", names(htmlVec)[i], "](", htmlVec[i],")\n\n")
-}
-```
+![](Images/CellRangerOutputOuts.png){width=50%}
+
+* **analysis** - The results of clustering and differential expression analysis
+  on the clusters. These are used in the *web_summary.html* report.
+* **cloupe.cloupe** - a cloupe file for loading into the 10x loupe browser
+* **filtered_feature_bc_matrix** - The filtered count matrix directory 
+* **filtered_feature_bc_matrix.h5** - The filtered count matrix as an HDF5 file
+* **metrics_summary.csv** - summary metrics from the analysis  
+* **molecule_info.h5** - per-molecule read information as an HDF5 file 
+* **possorted_genome_bam.bam** - The aligned reads in bam format 
+* **possorted_genome_bam.bam.bai** - The bam index 
+* **raw_feature_bc_matrix** - The raw count matrix directory 
+* **raw_feature_bc_matrix.h5** - The raw count matrix as an HDF5 file 
+* **web_summary.html** - The summary report 
+
+The two count matrix directories each contain 3 files:
+
+* **barcodes.tsv.gz** - The cell barcodes detected; these correspond to the
+  columns of the count matrix
+* **features.tsv.gz** - The features detected. In this cases gene ids. These
+  correspond to the rows of the count matrix.
+* **matrix.mtx.gz** - the count of unique UMIs for each gene in each cell.
+
+The filtered count matrix only contains reads that have been called as cells
+by CellRanger.
+
+#### What are the counts?
+
+Remember that for each read we have a sample barcode, a cell barcode, and a
+UMI.  In addition we now have location on the genome and a corresponding gene
+annotation.  The count for any gene for any cell is the number of unique reads
+detected for the combination:
+
+sample barcode + cell barcode + UMI + gene ID
+
+Thus we avoid counting PCR duplicate reads as these will have the same UMI. For
+this reason we more commmonly talk about the "UMI count" rather than the "Read
+count"; the "Read count" could be higher than the "UMI count"
+
+
+
+
