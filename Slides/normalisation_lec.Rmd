@@ -1,0 +1,122 @@
+---
+title: "Normalisation"
+author: "Stephane Ballereau"
+date: "May 2021"
+output:
+  beamer_presentation: default
+  slidy_presentation: default
+  ioslides_presentation:
+    logo: ../Images/CRUK_CC_greyBgd.jpg
+    smaller: yes
+    widescreen: yes
+    css: css/stylesheet.css
+---
+    
+<!--
+    logo: Images/CRUK_CC_web.jpg
+-->
+
+```{r include=FALSE}
+library(tidyr)
+library(dplyr)
+#source("SOME_SCRIPT.R")
+```
+
+## Outline
+
+* Motivation
+
+* Initial methods
+
+* Deconvolution
+
+* SCTransform
+
+## Motivation
+
+Systematic differences in sequencing coverage between libraries occur because of:
+
+* low input material,
+* differences in cDNA capture
+* differences in PCR amplification.
+
+Normalisation removes such differences
+so that differences between cells are not technical but biological,
+allowing meaningful comparison of expression profiles between cells.
+
+Normalisation and batch correction have different aims:
+
+Normalisation addresses technical differences only, while batch correction
+considers both technical and biological differences.
+
+Sources: chapters on normalisation in the
+[OSCA book](https://osca.bioconductor.org/normalization.html) and the
+[Hemberg group materials](https://scrnaseq-course.cog.sanger.ac.uk/website/index.html).
+
+## Initial methods
+
+* In scaling normalization, the “normalization factor” is an estimate of the
+library size relative to the other cells.
+
+* Steps usually include:
+  * computation of a cell-specific 'scaling' or 'size' factor
+    * that represents the relative bias in that cell
+  * division of all counts for the cell by that factor to remove that bias.
+    
+* Assumption: any cell specific bias will affect genes the same way.
+
+## Examples
+
+* CPM: convert raw counts to counts-per-million (CPM)
+  * for each cell
+  * by dividing counts by the library size then multiplying by 1.000.000.
+* does not adress compositional bias caused by highly expressed genes that are also
+differentially expressed betwenn cells.
+
+## Examples
+
+* DESeq's size factor
+  * For each gene, compute geometric mean across cells.
+  * For each cell
+    * compute for each gene the ratio of its expression to its geometric mean,
+    * derive the cell's size factor as the median ratio across genes.
+
+Not suitable for sparse scRNA-seq data as the geometric is computed on non-zero
+values only.
+
+This method is also known as 'Relative Log Expression' (RLE) in `edgeR` and `scater`.
+
+## Deconvolution
+
+```{r, out.width = '30%'}
+knitr::include_graphics("../Images/scran_Fig3.png", auto_pdf = TRUE)
+```
+
+## Deconvolution
+
+Steps:
+* compute scaling factors,
+* apply scaling factors
+
+## SCTransform
+
+With scaling normalisation a correlation remains between the mean and variation
+of expression (heteroskedasticity).
+
+This affects downstream dimensionality reduction as the few main new dimensions are usually correlated with library size.
+
+SCTransform addresses the issue by regressing library size out of raw counts
+and providing residuals to use as normalized and variance-stabilized expression values in downstream analysis.
+
+## SCTransform
+
+```{r, out.width = '30%'}
+knitr::include_graphics("../Images/sctransform1.png", auto_pdf = TRUE)
+```
+
+## SCTransform
+
+```{r, out.width = '30%'}
+knitr::include_graphics("../Images/sctransform2.png", auto_pdf = TRUE)
+```
+
