@@ -55,7 +55,7 @@ meta data table that relates the sample/run ID to the sample group. This is the
 metadata for all samples from both data sets.
 
 ```{r samplesheet_preProc, message=FALSE}
-samplesheet <- read_tsv("Data/sample_sheet.tsv")
+samplesheet <- read_tsv("../Data/sample_sheet.tsv")
 ```
 
 ```{r samplesheet_display_preProc}
@@ -78,7 +78,7 @@ bp.params <- MulticoreParam(workers = 7)
 ### Load the data
 
 ```{r}
-sce <- readRDS("Robjects/Caron_data.sce.annot.rds")
+sce <- readRDS("../Robjects/Caron_data.sce.annot.rds")
 ```
 
 # QC
