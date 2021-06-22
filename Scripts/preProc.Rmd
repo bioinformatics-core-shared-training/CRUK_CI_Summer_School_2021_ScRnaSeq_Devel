@@ -154,19 +154,20 @@ such as 10X, mostly because:
 are detected
 
 We can access the counts matrix with `counts`. Given the large number of
-droplets in a sample, count matrices can be large. They are however very sparse
-and can be stored in a 'sparse matrix' that only stores non-zero values, for
-example a `dgCMatrix` object. 
+droplets in a sample, count matrices can be large. 
+
+```{r example_dim}
+dim(counts(sce.raw))
+```
+
+They are however very sparse, that is, most of the entries are 0's. To save
+memory the counts can be stored in a 'sparse matrix' that only stores non-zero
+values, for example a `dgCMatrix` object.
 
 ```{r countsMatrix}
 counts(sce.raw)[1:10, 1:10]
 ```
 
-Number of genes (rows) and droplets (columns) in the count matrix:
-
-```{r example_dim}
-dim(counts(sce.raw))
-```
 
 ### Features
 
@@ -226,8 +227,12 @@ called by CellRanger. We pass the `read10xCounts` a named vector containing the
 paths to the filtered counts matrices that we wish to load; the names of the
 vector will be used as the sample names in the Single Cell Experiment object.
 
+Note that for PBMMC_1 we have two sequencing runs, for now, we will only use one
+of them.
+
 ```{r make_file_list}
 list_of_files <- samplesheet %>%
+    distinct(SampleName, .keep_all = TRUE) %>% 
     group_by(SampleGroup) %>% 
     slice(1:2) %>%
     mutate(File=str_c("CellRanger_Outputs/", 
@@ -262,16 +267,16 @@ sequence and a 'group ID', e.g. AAACCTGAGAAACCAT-1. The 'group ID' helps
 distinguish cells from different samples that have identical barcode sequences,
 however, as each sample was processed separately with CellRanger, the group ID
 is set to 1 in all data sets. Some of our downstream tools will use this column
-to identify different droplets, so we will need modify these to be unique; we 
-can just use the modified rownames.
+to identify different droplets, so we will need modify these to be unique.
 
 In order to distinguish droplets that originate from different samples but have
 the same barcode, `read10XCounts` has added the "index" of the sample in
 the `list_of_files` object (1-10) to the beginning of the cell barcode in the
 row names of the droplet annotation table and the column names of the count 
-matrix.
+matrix. We will use this number to modify the "Barcode" column.
 
-We can also add information about the sample group to the droplet annotation.
+We will also switch the "Sample" column to be the sample name and add 
+information from the sample sheet to the droplet annotation.
 
 ```{r dataSets_addSampleSheet}
 colData(sce) <- colData(sce) %>% 
@@ -280,8 +285,10 @@ colData(sce) <- colData(sce) %>%
     mutate(SampleNum = str_extract(RowName, "^[0-9]+")) %>%
     mutate(Barcode = str_replace(Barcode, "1$", SampleNum)) %>%
     left_join(samplesheet, by=c(Sample="SampleId")) %>%
-    select(-SampleNum) %>%
+    rename(SampleId=Sample) %>% 
+    rename(Sample=SampleName) %>% 
     column_to_rownames("RowName") %>% 
+    select(Sample, Barcode, SampleId, SampleGroup, DatasetName) %>%
     DataFrame()
 ```
 
@@ -430,10 +437,10 @@ There are many ways we could annotate our genes in R. We will use
 
 ```{r annotate_genes}
 ah <- AnnotationHub()
-ens.mm.93 <- query(ah, c("Homo sapiens", "EnsDb", 93))[[1]] 
+ens.mm.98 <- query(ah, c("Homo sapiens", "EnsDb", 98))[[1]] 
 
 genes <- rowData(sce)$ID
-gene_annot <- AnnotationDbi::select(ens.mm.93, 
+gene_annot <- AnnotationDbi::select(ens.mm.98, 
                                     keys = genes,
                                     keytype = "GENEID",
                                     columns = c("GENEID", "SEQNAME")) %>%
@@ -880,7 +887,7 @@ exclude many good quality cells. To demonstrate these methods, we'll just
 extract one sample from our SingleCellExperiment object.
 
 ```{r}
-sce.BM1 <- sce[ , sce$Sample == "MantonBM1"]
+sce.BM1 <- sce[ , sce$Sample == "ABMMC_1"]
 ```
 
 ## Using "outlyingness"
@@ -921,7 +928,6 @@ sce.BM1 <- runColDataPCA(sce.BM1,
                      variables=list("log10sum", "log10detected", "subsets_Mito_percent"),
                      outliers=TRUE,
 			         BPPARAM = bp.params)
-summary(sce.BM1$outlier)
 ```
 
 This has added the results of the principle component analysis into a new slot
@@ -1066,10 +1072,10 @@ sce.caron <- sce.caron[!sparse.genes, !(sparse.cells|mito.cells)]
 sce.caron
 ```
 
-**Note**: An important thing to note is that, now that we have filtered this 
-object, some of the QC metrics that we calculated across all genes (for `colData`)
-and across all cells (for `rowData`) are not longer correct for the filtered
-data set. We need to remove them, and if necessary recalculate them.
+**Note**: An important thing to note is that, now that we have filtered this
+object, some of the QC metrics that we calculated across all genes (for
+`colData`) and across all cells (for `rowData`) are no longer correct for the
+filtered data set. We need to remove them, and if necessary recalculate them.
 
 ```{r}
 colData(sce.caron) <- colData(sce.caron)[,1:3]
