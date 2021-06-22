@@ -1,3 +1,6 @@
+# this script prepares the Caron data for the challenge and saves it as an RDS
+# file that the students can load at the start of the challenge.
+
 library(DropletUtils)
 library(ensembldb)
 library(AnnotationHub)
@@ -30,17 +33,23 @@ colData(sce) <- colData(sce) %>%
     mutate(SampleNum = str_extract(RowName, "^[0-9]+")) %>%
     mutate(Barcode = str_replace(Barcode, "1$", SampleNum)) %>%
     left_join(samplesheet, by=c(Sample="SampleId")) %>%
-    select(-SampleNum) %>%
+    rename(SampleId=Sample) %>% 
+    rename(Sample=SampleName) %>% 
+    mutate(Sample = case_when(
+        SampleId == "SRR9264351" ~ str_c(Sample, "a"),
+        SampleId == "SRR9264352" ~ str_c(Sample, "b"),
+        TRUE ~ Sample)) %>% 
     column_to_rownames("RowName") %>% 
+    select(Sample, Barcode, SampleId, SampleGroup, DatasetName) %>%
     DataFrame()
 
 # Annotate with Chromosomes names
 
 ah <- AnnotationHub()
-ens.mm.93 <- query(ah, c("Homo sapiens", "EnsDb", 93))[[1]] 
+ens.mm.98 <- query(ah, c("Homo sapiens", "EnsDb", 98))[[1]] 
 
 genes <- rowData(sce)$ID
-gene_annot <- AnnotationDbi::select(ens.mm.93, 
+gene_annot <- AnnotationDbi::select(ens.mm.98, 
                                     keys = genes,
                                     keytype = "GENEID",
                                     columns = c("GENEID", "SEQNAME")) %>%

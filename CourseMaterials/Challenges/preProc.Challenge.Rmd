@@ -31,7 +31,7 @@ steps up to and including section 6.0.1 in the course materials book.
 While running the QC and particularly the filtering, you should consider the 
 experimental set up and will need to decide on whether to apply the filters
 across all samples at once or whether you should separate the samples into 
-batches for the adapative filters, and at what level the "batch" should be 
+batches for the adaptive filters, and at what level the "batch" should be 
 defined.
 
 # Load packages
@@ -50,7 +50,7 @@ library(DT)
 
 ## Sample meta data
 
-We will load both the Caron and HCA data sets. We have already prepared a sample
+We will load the Caron data sets. We have already prepared a sample
 meta data table that relates the sample/run ID to the sample group. This is the
 metadata for all samples from both data sets.
 
@@ -92,6 +92,11 @@ code into the code chunk below.
 ```{r}
 
 ```
+
+For the purposes of visualisation we want to be able to distinguish between the
+two libraries for PBMMC_1. For this reason we have added suffixes "a" and "b".
+Later in we will remove these suffixes. In the downstream analyses will want the
+cells to be treated as having come from a single samples.
 
 # Filter undetected genes
 
@@ -335,6 +340,21 @@ Replace the Cell metrics
 ```{r}
 
 ```
+
+# Modify the sample names for PBMMC_1
+
+Remove the suffix letters so that the droplets are assigned to the same sample
+- note that we can still distinguish the libraries based on the "SampleId" 
+column.
+
+```{r}
+colData(sce) <- colData(sce) %>%
+    as.data.frame() %>% 
+    mutate(across(Sample, str_remove, "[ab]$")) %>%
+    DataFrame()
+```
+
+# Export the final obect
 
 Write the object out to a file in the `results` directory  for later use.
 

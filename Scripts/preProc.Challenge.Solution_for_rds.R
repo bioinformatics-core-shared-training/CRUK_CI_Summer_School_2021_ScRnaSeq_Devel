@@ -1,3 +1,7 @@
+# This script creates the equivalent object to the one that the students would
+# create in the preprocessing challenge. This object is loaded at the the
+# beginning of the normalisation and batch correction sessions.
+
 library(DropletUtils)
 library(scater)
 library(BiocParallel)
@@ -29,4 +33,14 @@ sce$low_n_features <- batch.reasons$low_n_features
 sce$high_Mito_percent <- batch.reasons$high_subsets_Mito_percent
 sce$discard <- sce$low_lib_size | sce$low_n_features | sce$high_Mito_percent
 sce.Filtered <- sce[,!sce$discard]
+
+# Modify the sample names for PBMMC_1 - remove the suffix letters so that are
+# the same
+
+colData(sce) <- colData(sce) %>%
+    as.data.frame() %>% 
+    mutate(across(Sample, str_remove, "[ab]$")) %>%
+    DataFrame()
+    
+
 saveRDS(sce.Filtered, "../RobjectsReadOnly/Caron_filtered.rds")

@@ -89,9 +89,10 @@ Use the `colData` function to check that the samples you have in the `sce`
 object are the ones you are expecting (all of the Caron data set).
 
 ```{r}
-colData(sce)
-caronSamples <- filter(samplesheet, DatasetName=="Caron") %>% pull(SampleId)
-all(caronSamples%in%colData(sce)$Sample)
+colData(sce) %>%
+    as.data.frame() %>% 
+    select(Sample, SampleId, SampleGroup, DatasetName) %>% 
+    distinct()
 ```
 
 # Filter undetected genes
@@ -350,6 +351,21 @@ Replace the Cell metrics
 colData(sce) <- colData(sce)[,1:3]
 sce <- addPerCellQC(sce, BPPARAM = bp.params)
 ```
+
+# Modify the sample names for PBMMC_1
+
+Remove the suffix letters so that the droplets are assigned to the same sample
+- note that we can still distinguish the libraries based on the "SampleId" 
+column.
+
+```{r}
+colData(sce) <- colData(sce) %>%
+    as.data.frame() %>% 
+    mutate(across(Sample, str_remove, "[ab]$")) %>%
+    DataFrame()
+```
+
+# Export the final obect
 
 Write the object out to a file in the `results` directory  for later use.
 
