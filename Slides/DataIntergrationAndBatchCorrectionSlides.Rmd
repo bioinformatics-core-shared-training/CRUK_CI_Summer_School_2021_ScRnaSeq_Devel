@@ -1,7 +1,7 @@
 ---
 title: "Data Integration and Batch Correction"
 author: "Abbi Edwards"
-date: '7th June 2021'
+date: '28th June 2021'
 output:
   ioslides_presentation:
     widescreen: true
@@ -18,31 +18,57 @@ library(dplyr)
 
 ## Workflow
 
-<div style="line-height: 50%;"><br></div>
-
-<img src="../Images/workflow.svg" class="centerimg" style="width: 60%; margin-top: 60px;">
+<img src="../Images/workflow.svg" class="center" style="width: 70%; margin-top: 40px;">
 
 ## Why do we need to think about data intergration?
 
-Text
+- Practicalities of our Experimental Design
+
+- Different 10X runs at different times OR just the same sample run twice
+
+- Obscure real biological changes
 
 ## Formatting our data
 
-Text
+A few ways our data can be arranged (software dependent too)
+
+- single sample SCE objects QCed in isolation
+
+- large SCE object containing many samples
+
+- multiple large SCE objects with multiple samples
+
+
+Important we make sure things match up
+
+- Different bioconductor versions
+
+- Different analysts may have formatted things differently
+
 
 ## Cellranger aggr
+
+A useful quick look
 
 <img src="../Images/10X_cellranger_aggr.png" class="centerimg" style="width: 60%; margin-top: 60px;">
 
 ## Checking for batch effects
 
+<img src="../Images/batchCor_prePCA.png" class="centerimg" style="width: 32%; margin-top: 60px;">
+<img src="../Images/batchCor_preTSNE.png" class="left" style="width: 32%; margin-top: 60px;">
+<img src="../Images/batchCor_preUMAP.png" class="right" style="width: 32%; margin-top: 60px;">
+
 ## Batch Corrections
 
-## Linear Models
+- Gaussian/Linear Regression - removeBatchEffect (limma), comBat (sva), rescaleBatches or regressBatches (batchelor)
 
-## SCTransform
+- Mutual nearest neighbour correction - Haghverdi et al 2018 Nature Biotechnology
 
-## MNN correct
+  - mnnCorrect (batchelor)
+  
+  - FastMNN (batchelor)
+
+- Harmony - Korsunsky et al, 2019 Nature Methods
 
 ## FastMNN
 
@@ -52,9 +78,9 @@ Text
 4. Correct the cells in the target batch towards the reference, using locally weighted correction vectors.
 5. Merge the corrected target batch with the reference, and repeat with the next target batch.
 
-## Harmony
-
 ## Checking our correction has worked
+
+
 
 ## Checking our correction hasn't over worked
 
