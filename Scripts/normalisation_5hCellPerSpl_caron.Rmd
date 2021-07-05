@@ -856,250 +856,80 @@ calc_cell_RLE <- function (expr_mat, spikes = NULL)
 }
 ```
 
-<!-- DEV -->
-
-```{r, eval=FALSE}
-sce
-# get raw count RLE matrix
-# with one row per gene
-# and one column per cell
-## rawRleMat0 <- calc_cell_RLE(counts(sce)[1:10,]) # 10 first genes
-
-# calc_cell_RLE only uses genes whose median UMI count is greater than 0.
-
-# so let's see how many such genes there are.
-
-# get for each gene the median across cells
-medVec <- apply(counts(sce), 1, median)
-# cont genes whose median is greater than 0
-table(medVec > 0)
-# get indices for these genes
-# to focus on them for now
-posMedianInd <- which(medVec > 0)
-# sub set matrix and keep these genes only
-# or even only some of them
-#rawRleMat0 <- calc_cell_RLE(counts(sce)[posMedianInd[1:10],])
-rawRleMat0 <- calc_cell_RLE(counts(sce)[posMedianInd,])
-colnames(rawRleMat0) <- sce$Barcode
-
-rawRleMat <- calc_cell_RLE(counts(sce))
-colnames(rawRleMat) <- sce$Barcode
-
-```
-
-<!-- DEV -->
-
-```{r, eval=FALSE}
-# derive long table for plotting
-#dd <- rawRleMat0 %>%
-dd <- rawRleMat %>%
-  data.frame() %>%
-  tibble::rownames_to_column("geneId") %>%
-  pivot_longer(!geneId, names_to = "Barcode", values_to = "rle")
-#rawRleMat <- calc_cell_RLE(counts(sce))
-colDataTmp <- data.frame(
-  colData(sce)[,c("Barcode", "SampleGroup", "SampleName")]
-  )
-colDataTmp$Barcode <- gsub("-", ".", colDataTmp$Barcode)
-dd2 <- dd %>%
-  left_join(colDataTmp, by="Barcode")
-```
-
-<!-- DEV -->
-
-```{r, eval=FALSE}
-# check boxplot: too busy,
-# with border
-p <- ggplot(dd2, aes(x=Barcode, y=rle)) + 
-  geom_boxplot()
-
-# colour by SampleGroup
-p <- ggplot(dd2, aes(x=Barcode, y=rle, colour=SampleName)) + 
-  geom_boxplot()
- 
-p + facet_wrap(~SampleGroup, ncol=2)
-          
-# only keep 10 cells for now.          
-bcToGet <- gsub("-",".",colData(sce)$Barcode[1:10])
-dd10 <- dd2 %>% filter(Barcode %in% bcToGet)
-ggplot(dd10, aes(x=Barcode, y=rle)) + 
-  geom_boxplot()
-```
-
-<!-- scater:::.plotRLE_full -->
-
-```{r, eval=FALSE}
-# scater:::.plotRLE_full
-
-scater___plotRLE_full
-function (df, aesth, ncol, ...) 
-{
-    plot_out <- ggplot(df, aesth) + geom_boxplot(...) + stat_summary(geom = "crossbar", 
-        width = 0.65, fatten = 0, color = "white", fun.data = function(x) {
-            c(y = median(x), ymin = median(x), ymax = median(x))
-        }) + ylab("Relative log expression") + xlab("Sample") + 
-        theme_classic() + theme(axis.text.x = element_blank(), 
-        axis.ticks.x = element_blank(), axis.line.x = element_blank())
-    plot_out
-}
-#<bytecode: 0x55f94f03bf60>
-#<environment: namespace:scater>
-```
-
-```{r, eval=FALSE}
-p <- ggplot(dd10, aes(x=Barcode, y=rle)) + 
-  geom_boxplot()
-
-p <- ggplot(dd10, aes(x=Barcode, y=rle, col=SampleGroup))
-#p + stat_summary(geom = "crossbar",
-```
-
-<!-- DEV -->
-
-```{r, eval=FALSE}
-#bcToGet <- gsub("-",".",colData(sce)$Barcode[1:1000])
-bcToGet <- gsub("-",".",colData(sce)$Barcode)
-ddToShow <- dd2 %>% filter(Barcode %in% bcToGet)
-
-ddToShowMedianRle <- ddToShow %>%
-  group_by(SampleName, Barcode) %>%
-  summarise(medianRle=median(rle,na.rm = TRUE))
-
-ddToShowMedianRleSorted <- ddToShowMedianRle %>%
-  group_by(SampleName) %>%
-  arrange(medianRle, .by_group = TRUE)
-
-ddToShowSort <- ddToShowMedianRleSorted$Barcode
-  
-# set levels
-ddToShow$Barcode <- factor(ddToShow$Barcode,
-                           levels=ddToShowSort)
-ddToShow <- ddToShow %>%
-  filter(!is.na(rle))
-p <- ggplot(ddToShow, aes(x=Barcode, y=rle, col=SampleName))
-p2 <- p +
-  stat_summary(geom = "pointrange", 
-        width = 0.20, fatten = 0,
-        mapping = aes(group = SampleName),
-        fun.data = function(x) {
-            c(y = median(x),
-              ymin = unname(quantile(x,probs=0.25)),
-              ymax = unname(quantile(x,probs=0.75))
-              )
-        }) +
-  stat_summary(geom = "crossbar", 
-        width = 0.20, fatten = 0,
-        color = "black",
-        fun.data = function(x) {
-            c(y = median(x),
-              ymin = median(x),
-              ymax = median(x)
-              )
-        }) +
-  ylab("Relative log expression") +
-  xlab("Sample") +
-  theme_classic() +
-  theme(axis.text.x = element_blank(), 
-        axis.ticks.x = element_blank(),
-        axis.line.x = element_blank()) +
-  geom_hline(yintercept = 0)
-#p2 + facet_wrap(~SampleName)
-```
-
-<!-- DEV -->
-
-```{r, eval=FALSE}
-# DEV
-p <- ggplot(dd, aes(x=Barcode, y=rle)) + 
-  geom_boxplot()
-#p
-
-p <- ggplot(dd2, aes(x=Barcode, y=rle))
-p + stat_summary(geom = "crossbar", 
-        width = 0.05, fatten = 0, color = "black", fun.data = function(x) {
-            c(y = median(x), ymin = median(x), ymax = median(x))
-        }) + ylab("Relative log expression") + xlab("Sample") + 
-        theme_classic() + theme(axis.text.x = element_blank(), 
-        axis.ticks.x = element_blank(), axis.line.x = element_blank())
-```
-
 ```{r}
 prepRleMat <- function(rleMat) {
-# derive long table for plotting
-#dd <- rawRleMat0 %>%
-dd <- rleMat %>%
-  data.frame() %>%
-  tibble::rownames_to_column("geneId") %>%
-  pivot_longer(!geneId, names_to = "Barcode", values_to = "rle")
-#rawRleMat <- calc_cell_RLE(counts(sce))
-colDataTmp <- data.frame(
-  colData(sce)[,c("Barcode", "SampleGroup", "SampleName")]
-  )
-colDataTmp$Barcode <- gsub("-", ".", colDataTmp$Barcode)
-# merge
-dd2 <- dd %>%
-  left_join(colDataTmp, by="Barcode")
-return(dd2)
+	# derive long table for plotting
+	dd <- rleMat %>%
+	  data.frame() %>%
+	  tibble::rownames_to_column("geneId") %>%
+	  pivot_longer(!geneId, names_to = "Barcode", values_to = "rle")
+	colDataTmp <- data.frame(
+	  colData(sce)[,c("Barcode", "SampleGroup", "SampleName")]
+	  )
+	colDataTmp$Barcode <- gsub("-", ".", colDataTmp$Barcode)
+	# merge
+	dd2 <- dd %>%
+	  left_join(colDataTmp, by="Barcode")
+	return(dd2)
 }
-#bcToGet <- gsub("-",".",colData(sce)$Barcode)
 myRlePlot <- function(ddToShow, bcToGet=NULL, sortBool=TRUE) {
-# Have function for code chunk above
-if(!is.null(bcToGet)) {
-  ddToShow <- ddToShow %>% filter(Barcode %in% bcToGet)
-}
+	# Have function for code chunk above
+	if(!is.null(bcToGet)) {
+	  ddToShow <- ddToShow %>% filter(Barcode %in% bcToGet)
+	}
 
-ddToShowMedianRle <- ddToShow %>%
-  group_by(SampleName, Barcode) %>%
-  summarise(medianRle=median(rle,na.rm = TRUE))
+	ddToShowMedianRle <- ddToShow %>%
+	  group_by(SampleName, Barcode) %>%
+	  summarise(medianRle=median(rle,na.rm = TRUE))
 
-ddToShowMedianRleSorted <- ddToShowMedianRle %>%
-  group_by(SampleName) %>%
-  arrange(Barcode, .by_group = TRUE)
+	ddToShowMedianRleSorted <- ddToShowMedianRle %>%
+	  group_by(SampleName) %>%
+	  arrange(Barcode, .by_group = TRUE)
 
-ddToShowSort <- ddToShowMedianRleSorted$Barcode
+	ddToShowSort <- ddToShowMedianRleSorted$Barcode
   
-# set levels
-if(sortBool)
-{
-  ddToShowMedianRleSorted <- ddToShowMedianRle %>%
-  group_by(SampleName) %>%
-  arrange(medianRle, .by_group = TRUE)
-}
-  ddToShowSort <- ddToShowMedianRleSorted$Barcode
+	# set levels
+	if(sortBool)
+	{
+	  ddToShowMedianRleSorted <- ddToShowMedianRle %>%
+	  group_by(SampleName) %>%
+	  arrange(medianRle, .by_group = TRUE)
+	}
+	  ddToShowSort <- ddToShowMedianRleSorted$Barcode
 
-  ddToShow$Barcode <- factor(ddToShow$Barcode,
+ 	ddToShow$Barcode <- factor(ddToShow$Barcode,
                            levels=ddToShowSort)
 
-ddToShow <- ddToShow %>%
-  filter(!is.na(rle))
-p <- ggplot(ddToShow, aes(x=Barcode, y=rle, col=SampleName))
-p2 <- p +
-  stat_summary(geom = "pointrange", 
-        width = 0.20, fatten = 0,
-        mapping = aes(group = SampleName),
-        fun.data = function(x) {
-            c(y = median(x),
-              ymin = unname(quantile(x,probs=0.25)),
-              ymax = unname(quantile(x,probs=0.75))
-              )
-        }) +
-  stat_summary(geom = "crossbar", 
-        width = 0.20, fatten = 0,
-        color = "black",
-        fun.data = function(x) {
-            c(y = median(x),
-              ymin = median(x),
-              ymax = median(x)
-              )
-        }) +
-  ylab("Relative log expression") +
-  xlab("Sample") +
-  theme_classic() +
-  theme(axis.text.x = element_blank(), 
-        axis.ticks.x = element_blank(),
-        axis.line.x = element_blank()) +
-  geom_hline(yintercept = 0)
-return(p2)
+	ddToShow <- ddToShow %>%
+	  filter(!is.na(rle))
+	p <- ggplot(ddToShow, aes(x=Barcode, y=rle, col=SampleName))
+	p2 <- p +
+	  stat_summary(geom = "pointrange", 
+	        width = 0.20, fatten = 0,
+	        mapping = aes(group = SampleName),
+	        fun.data = function(x) {
+	            c(y = median(x),
+	              ymin = unname(quantile(x,probs=0.25)),
+	              ymax = unname(quantile(x,probs=0.75))
+	              )
+	        }) +
+	  stat_summary(geom = "crossbar", 
+	        width = 0.20, fatten = 0,
+	        color = "black",
+	        fun.data = function(x) {
+	            c(y = median(x),
+	              ymin = median(x),
+	              ymax = median(x)
+	              )
+	        }) +
+	  ylab("Relative log expression") +
+	  xlab("Sample") +
+	  theme_classic() +
+	  theme(axis.text.x = element_blank(), 
+	        axis.ticks.x = element_blank(),
+	        axis.line.x = element_blank()) +
+	  geom_hline(yintercept = 0)
+	return(p2)
 }
 ```
 
@@ -1114,7 +944,6 @@ p2 <- myRlePlot(dd2)
 ```{r}
 p2
 ```
-
 
 ```{r, eval=FALSE}
 p2 + facet_wrap(~SampleGroup)
@@ -1187,14 +1016,7 @@ p <- plotRLE(
 ) + ggtitle(sprintf("RLE plot: %s", typeNorm))
 
 p
-#p + coord_cartesian(ylim=c(-0.5,0.5))
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sRle.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
 ```
-
 
 ```{r}
 cpmRleMat <- calc_cell_RLE(calculateCPM(sce, size_factors = NULL))
@@ -1224,8 +1046,6 @@ Normalised counts are stored in the 'logcounts' assay
 ```{r comp_pca_deconv_Caron_5hCellPerSpl}
 typeNorm <- "scran"
 
-# assay(sce, "logcounts")
-
 scranPca <- runPCA(
   sceDeconv,
   exprs_values = "logcounts"#,
@@ -1245,8 +1065,6 @@ p <- plotPCA(
 
 p
 ```
-
-
 
 TSNE plot for the '`r typeNorm`' counts in the `r setName` set.
 
@@ -1368,7 +1186,6 @@ somewhat surprising PCA plot
 with cells tight along PC1 and PC2
 -->
 
-
 ```{r}
 percent.var <- attr(reducedDim(sce), "percentVar")
 chosen.elbow <- PCAtools::findElbowPoint(percent.var)
@@ -1451,7 +1268,6 @@ colnames(sctRleMat) <- sce$Barcode
 dd2 <- prepRleMat(deconvRleMat)
 p2 <- myRlePlot(dd2, sortBool=FALSE)
 ```
-
 
 ```{r}
 library(patchwork)
