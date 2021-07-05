@@ -1,13 +1,10 @@
 ---
 title: "CRUK CI Summer School 2021 - introduction to single-cell RNA-seq analysis"
-subtitle: 'Quality Control - Challenge'
 author: "Stephane Ballereau, Ashley Sawle"
+subtitle: Quality Control - Challenge
 output:
-  html_notebook:
-    code_folding: hide
+  html_document:
     toc: yes
-    toc_float: yes
-    number_sections: true
 ---
 
 ```{r setup, echo=FALSE, include=FALSE, message=FALSE}
@@ -253,14 +250,13 @@ plotColData(sce,
         facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
         labs(y = "Percentage mitochondrial UMIs",
              title = "Mitochondrial UMIs") +
-        guides(colour=guide_legend(title="Discarded"))
-
+        guides(colour=guide_legend(title="High % mitochrondrial"))
 ```
 
 # Considering experimental factors when filtering
 
-Based on the experimental design and the plots above, d you think applying the adaptive filtering
-across all the samples is appropriate?
+Based on the experimental design and the plots above, do you think applying the
+adaptive filtering across all the samples is appropriate?
 
 Perhaps a batched approach is more suitable. This time use the `quickPerCellQC`
 function to perform all three filters and add a parameter for the batch (this
@@ -296,15 +292,7 @@ tibble(`Batch`=names(attr(batch.reasons[[1]], "thresholds")[1,]),
 Once you have decided how best to filter the data you should remove the 
 droplets that do not pass your criteria from the data set. 
 
-Replace the filter columns in the droplet annotation with your chosen filters
-and then create a fourth column called `discard` that combines the three filters
-into a single boolean vector.
-
-```{r set_filter_columns}
-
-```
-
-Now exclude poor-quality cells from the SingleCellExperiment object and save the
+Exclude poor-quality cells from the SingleCellExperiment object and save the
 final object to the `results` directory for later use.
 
 ```{r filter_cells}

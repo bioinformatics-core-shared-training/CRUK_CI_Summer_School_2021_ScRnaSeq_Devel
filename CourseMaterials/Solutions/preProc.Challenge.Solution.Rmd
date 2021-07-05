@@ -3,11 +3,8 @@ title: "CRUK CI Summer School 2021 - introduction to single-cell RNA-seq analysi
 subtitle: 'Quality Control - Challenge'
 author: "Stephane Ballereau, Ashley Sawle"
 output:
-  html_notebook:
-    code_folding: show
+  html_document:
     toc: yes
-    toc_float: yes
-    number_sections: true
 ---
 
 ```{r setup, echo=FALSE, include=FALSE, message=FALSE}
@@ -300,18 +297,7 @@ tibble(`Batch`=names(attr(batch.reasons$low_lib_size, "thresholds")[1,]),
 Once you have decided how best to filter the data you should remove the 
 droplets that do not pass your criteria from the data set. 
 
-Replace the filter columns in the droplet annotation with your chosen filters
-and then create a fourth column that combines the three filters into a single
-boolean vector.
-
-```{r set_filter_columns}
-sce$low_lib_size <- batch.reasons$low_lib_size
-sce$low_n_features <- batch.reasons$low_n_features
-sce$high_Mito_percent <- batch.reasons$high_subsets_Mito_percent
-sce$discard <- sce$low_lib_size | low_n_features | high_Mito_percent
-```
-
-Now exclude poor-quality cells from the SingleCellExperiment object and save the
+Exclude poor-quality cells from the SingleCellExperiment object and save the
 final object to the `results` directory for later use.
 
 ```{r filter_cells}
