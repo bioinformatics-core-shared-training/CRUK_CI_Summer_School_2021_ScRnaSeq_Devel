@@ -1,6 +1,6 @@
 ---
 title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
-subtitle: 'Normalisation - Caron data seet - 500 cells per sample'
+subtitle: 'Normalisation - Caron data set - 500 cells per sample'
 
 author: "Stephane Ballereau"
 output:
@@ -18,7 +18,6 @@ output:
     code_folding: hide
 ---
 
-
 <!--
 params:
   projDir: "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
@@ -29,30 +28,25 @@ params:
   cacheBool: FALSE
 -->
 
-# Normalisation - `r "Caron"` set {#NormalisationCaron5hcpsTop}
+# Normalisation - Caron set {#NormalisationCaron5hcpsTop}
 
-```{r norm_Caron.knitr_options, echo=FALSE, results="hide", message=FALSE}
+```{r norm_Caron.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
+library(knitr)
+# add 'dev="CairoPNG"' if X11 is not available
+#opts_chunk$set(dev="CairoPNG")
+
 cacheBool <- !TRUE
 require(knitr)
 opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
 opts_chunk$set(fig.width=7, fig.height=7)
-#opts_chunk$set(dev="CairoPNG")
+options(bitmapType='cairo') # if X11 is not available
+opts_chunk$set(dev="CairoPNG") # if X11 is not available
 set.seed(123) # for reproducibility
 ```
 
 Sources: chapters on normalisation in the
 [OSCA book](https://osca.bioconductor.org/normalization.html) and the
 [Hemberg group materials](https://scrnaseq-course.cog.sanger.ac.uk/website/index.html).
-
-## Why normalise?
-
-Systematic differences in sequencing coverage between libraries occur because of
-low input material, differences in cDNA capture and PCR amplification.
-Normalisation removes such differences so that differences between cells are not
-technical but biological, allowing meaningful comparison of expression profiles
-between cells. Normalisation and batch correction have different aims.
-Normalisation addresses technical differences only, while batch correction
-considers both technical and biological differences.
 
 ## Learning objectives
 
@@ -85,6 +79,19 @@ div.blue {background-color:#e6f0ff; border-radius: 5px; padding: 20px;}
     using by regression
 -->
 
+## Why normalise?
+
+Systematic differences in sequencing coverage between libraries occur because of
+low input material, differences in cDNA capture and PCR amplification.
+Normalisation removes such differences so that differences between cells are not
+technical but biological, allowing meaningful comparison of expression profiles
+between cells. Normalisation and batch correction have different aims.
+Normalisation addresses technical differences only, while batch correction
+considers both technical and biological differences.
+
+
+<!-- PARAMS and LIBRARIES -->
+
 ```{r Caron_variables_norm}
 #normPlotDirBit <- "Plots/Norm" # not use anymore
 
@@ -105,11 +112,14 @@ library(scater)
 library(scran)
 library(ggplot2)
 library(dplyr)
+library(tidyr)
 library(BiocSingular)
-#library(Cairo)
 library(BiocParallel)
+library(glue)
 
 bpp <- MulticoreParam(7)
+
+library(Cairo) # if X11 is not available
 ```
 
 ## Load object
@@ -117,38 +127,48 @@ bpp <- MulticoreParam(7)
 We will load the R object created after QC.
 
 ```{r Caron_norm_readIn_5hCellPerSpl, cache.lazy = FALSE}
-getwd()
 # Read object in:
-dir("../CourseMaterials/Robjects/")
 tmpFn <- "../CourseMaterials/Robjects/Caron_filtered.rds"
 sce <- readRDS(tmpFn)
 sce
+```
 
+```{r}
 # PATCH names
-samplesheet <- readr::read_tsv("../CourseMaterials/Data/sample_sheet.tsv")
-samplesheet %>%
-	as.data.frame() %>%
-	DT::datatable(rownames = FALSE, options = list(dom="tpl", nrows=20))
+#samplesheet <- readr::read_tsv("../CourseMaterials/Data/sample_sheet.tsv")
+#samplesheet %>%
+#	as.data.frame() %>%
+#	DT::datatable(rownames = FALSE, options = list(dom="tpl", nrows=20))
 
-dd <- colData(sce) %>% data.frame()
-dd$SampleId <- dd$Sample
-dd <- dd  %>%
-  left_join(samplesheet[, c("SampleId", "SampleName")], by="SampleId") %>%
+dd <- colData(sce) %>%
+  data.frame() %>%
+  rename(SampleName=Sample) %>% # TODO: change that in preProc
   DataFrame()
+
 colData(sce) <- dd  
+```
+
+Sample sheet:
+
+```{r Caron_norm_sampleSheet}
+colData(sce) %>%
+  data.frame() %>%
+  select(SampleName, SampleId, SampleGroup) %>%
+  group_by(SampleName, SampleId, SampleGroup) %>%
+  summarise(nbCells=n()) %>%
+  DT::datatable(rownames = FALSE,
+                options = list(dom="tpl", pageLength = 15, nrows=20))
 ```
 
 Subsample cells down to 500 per sample
 
-```{r Caron_downsample_variables, eval=TRUE}
+```{r Caron_norm_downsample}
 setSuf <- "_5hCellPerSpl"
 nbCells <- 500
-```
 
-```{r Caron_downsample, eval=TRUE}
 # have new list of cell barcodes for each sample
-sce.nz.master <- sce
-vec.bc <- colData(sce.nz.master) %>%
+sce.master <- sce
+vec.bc <- colData(sce.master) %>%
 	data.frame() %>%
 	filter(!SampleId == "SRR9264351") %>%
 	group_by(SampleName) %>%
@@ -156,31 +176,34 @@ vec.bc <- colData(sce.nz.master) %>%
 	pull(Barcode)
 ```
 
-Number of cells in the sample:
 
-```{r Caron_barcodes}
-table(colData(sce.nz.master)$Barcode %in% vec.bc)
-```
 
 Subset cells from the SCE object:
 
 ```{r Caron_subset_sce}
-tmpInd <- which(colData(sce.nz.master)$Barcode %in% vec.bc) # mind QC metrics will be wrong
-sce <- sce.nz.master[,tmpInd]
+tmpInd <- which(colData(sce.master)$Barcode %in% vec.bc) # mind QC metrics will be wrong
+sce <- sce.master[,tmpInd]
+rm(sce.master)
 ```
 
-Check columns data:
+<!-- Check columns data: -->
 
-```{r Caron_SampleName_table}
-head(colData(sce))
-table(colData(sce)$SampleName)
+```{r Caron_norm_sampleSheet_postDownSampling}
+colData(sce) %>%
+  data.frame() %>%
+  select(SampleName, SampleId, SampleGroup) %>%
+  group_by(SampleName, SampleId, SampleGroup) %>%
+  summarise(nbCells=n()) %>%
+  DT::datatable(rownames = FALSE,
+                options = list(dom="tpl", pageLength = 15, nrows=20))
 ```
 
 <!--
 # mind that genes were filtered using all cells, not just those sampled here.
 -->
 
-We write the R object to '`r sprintf("%s_postQc%s.Rds", setName, setSuf)`'.
+<!-- We write the R object to '`r sprintf("%s_postQc%s.Rds", setName, setSuf)`'. -->
+We write the R object to '`r glue("{setName}_postQc{setSuf}.Rds")`'.
 
 ```{r Caron_downsample_write, eval=writeRds}
 # Write object to file
@@ -219,8 +242,7 @@ scRNA-seq data.
 Convert raw counts to counts-per-million (CPM) for each cell by dividing counts
 by the library size then multiplying by 1.000.000. Mind that this does not
 adress compositional bias caused by highly expressed genes that are also
-differentially expressed betwenn cells. In `scater` CPMs are computed with the
-following code:
+differentially expressed between cells. In `scuttle` CPMs are computed as follows:
 
 ```{r Caron_calc_cpm}
 calc_cpm <- function (expr_mat, spikes = NULL) 
@@ -230,7 +252,7 @@ calc_cpm <- function (expr_mat, spikes = NULL)
 }
 ```
 
-We will use `scater`'s calculateCPM()
+We will use `scuttle`'s calculateCPM()
 
 ### DESeq's size factor
 
@@ -262,7 +284,7 @@ reference to use in computation for other cells. The M-values are gene-wise
 log2-fold changes between cells. Trimming entails the removal of the top and
 bottom 30% of values. The size factor is computed as the average for the remaining
 cells with a weight according to inverse variances. This method assumes that
-most genes are not differentially expressed, and the 40% lof genes left after 
+most genes are not differentially expressed, and the 40% of genes left after 
 trimming may include many zero counts.
 
 ```{r calcNormFactors_comp_norm_Caron_5hCellPerSpl}
@@ -415,6 +437,7 @@ deconvDf <- data.frame(lib.sf, deconv.sf,
 # colour by sample type
 sp <- ggplot(deconvDf, aes(x=lib.sf, y=deconv.sf, col=source_name)) +
   geom_point()
+sp
 ```
 
 ```{r scatter_deconvSf_libSf_colBy_sourceName_split_plot_norm_Caron_5hCellPerSpl, eval=FALSE}
@@ -517,6 +540,7 @@ Gene attributes:
 dim(gene_attr)
 head(gene_attr)
 ```
+
 Cell attributes:
 
 ```{r cell_attr_sct_Caron_5hCellPerSpl}
@@ -725,10 +749,14 @@ assayNames(sce)
 ```{r copyVstMat_sct_Caron_5hCellPerSpl}
 sce
 vstMat <- as(vst_out$y[rownames(sce),], "dgCMatrix")
+# reading 10X data with vector above adds a prefix to sce colnames
+# so we will not pass vstMat colnames when copying it in a assay slot,
+# but must first check that barcodes are indeed in the same order
+# in sce and vstMat.
 all(colnames(vstMat) == sce$Barcode)
-colnames(vstMat) <- NULL
-assay(sce, "sctrans_norm") <- vstMat # as(vst_out$y[rownames(sce),], "dgCMatrix")
-#assayNames(sce)
+all(rownames(vstMat) == rownames(sce))
+assay(sce, "sctrans_norm", withDimnames=FALSE) <- vstMat
+#assayNames(sce) # check sctrans_norm is there
 ```
 
 ### Save SCE object
@@ -740,7 +768,6 @@ tmpFn <- sprintf("%s/%s/Robjects/%s_postSct%s.Rds",
 saveRDS(sce, tmpFn)
 ```
 
-
 ## Exercise 2
 
 Exercise: apply the SCTransform normalisation on a single sample: ETV6-RUNX1_1 (aka GSM3872434).
@@ -748,7 +775,12 @@ Exercise: apply the SCTransform normalisation on a single sample: ETV6-RUNX1_1 (
 In exercise 1, you have made a new SCE object with cells for SampleName 'ETV6-RUNX1_1'.
 You will now inspect the mean-variance relationship and apply SCTransform to that data.
 
-## Extended materials - Visualisation
+## Effectiveness
+
+```{r}
+# We will use the SCE object keeping the deconvolution counts
+sce <- sceDeconv
+```
 
 ### log raw counts
 
@@ -759,12 +791,12 @@ typeNorm <- "logRaw"
 # irlba == implicitly restarted Lanczos bidiagonalization algorithm.
 options(BiocSingularParam.default=IrlbaParam())
 
-# Have rae counts on log2 scale:
+# Have raw counts on log2 scale:
 assay(sce, "logcounts_raw") <- log2(counts(sce) + 1)
 
 # Perform PCA:
 set.seed(123)
-tmp <- runPCA(
+sceRawPca <- runPCA(
   sce,
   exprs_values = "logcounts_raw"#,
   #BSPARAM=IrlbaParam(),
@@ -777,25 +809,13 @@ PCA plot for the '`r typeNorm`' counts in the `r setName` set.
 
 ```{r plot_pca_logRaw_Caron_5hCellPerSpl}
 p <- plotPCA(
-    tmp,
+    sceRawPca,
     colour_by = "SampleName",
     size_by = "sum",
     shape_by = "SampleGroup"
 ) + ggtitle(sprintf("PCA plot for log raw counts: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sPca.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
-```
-
-```{r show_pca_logRaw_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sPca.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
 ```
 
 <!--
@@ -804,27 +824,326 @@ Each cell is represented by a box plot showing the inter-quartile range in grey,
 wiskers colour-coded by Sample.Name and the median as a black circle. 
 -->
 
+<!-- calc_cell_RLE -->
+
+```{r}
+calc_cell_RLE <- function (expr_mat, spikes = NULL) 
+{
+  # define RLE_gene function:
+  # compute RLE for a given gene
+  # if median expression for that gene is positive
+  # then compute RLE: log(count in cell / median count across cells)/log2
+    RLE_gene <- function(x) {
+      #print(length(x))
+      #print(median(unlist(x)))
+        if (median(unlist(x)) > 0) {
+            log((x + 1)/(median(unlist(x)) + 1))/log(2)
+        }
+        else {
+            rep(NA, times = length(x))
+        }
+    }
+    if (!is.null(spikes)) {
+        RLE_matrix <- t(apply(expr_mat[-spikes, ], 1, RLE_gene))
+    }
+    else {
+        RLE_matrix <- t(apply(expr_mat, 1, RLE_gene))
+    }
+    return(RLE_matrix)
+    cell_RLE <- apply(RLE_matrix, 2, median, na.rm = T)
+    #print(cell_RLE)
+    return(cell_RLE)
+}
+```
+
+<!-- DEV -->
+
+```{r, eval=FALSE}
+sce
+# get raw count RLE matrix
+# with one row per gene
+# and one column per cell
+## rawRleMat0 <- calc_cell_RLE(counts(sce)[1:10,]) # 10 first genes
+
+# calc_cell_RLE only uses genes whose median UMI count is greater than 0.
+
+# so let's see how many such genes there are.
+
+# get for each gene the median across cells
+medVec <- apply(counts(sce), 1, median)
+# cont genes whose median is greater than 0
+table(medVec > 0)
+# get indices for these genes
+# to focus on them for now
+posMedianInd <- which(medVec > 0)
+# sub set matrix and keep these genes only
+# or even only some of them
+#rawRleMat0 <- calc_cell_RLE(counts(sce)[posMedianInd[1:10],])
+rawRleMat0 <- calc_cell_RLE(counts(sce)[posMedianInd,])
+colnames(rawRleMat0) <- sce$Barcode
+
+rawRleMat <- calc_cell_RLE(counts(sce))
+colnames(rawRleMat) <- sce$Barcode
+
+```
+
+<!-- DEV -->
+
+```{r, eval=FALSE}
+# derive long table for plotting
+#dd <- rawRleMat0 %>%
+dd <- rawRleMat %>%
+  data.frame() %>%
+  tibble::rownames_to_column("geneId") %>%
+  pivot_longer(!geneId, names_to = "Barcode", values_to = "rle")
+#rawRleMat <- calc_cell_RLE(counts(sce))
+colDataTmp <- data.frame(
+  colData(sce)[,c("Barcode", "SampleGroup", "SampleName")]
+  )
+colDataTmp$Barcode <- gsub("-", ".", colDataTmp$Barcode)
+dd2 <- dd %>%
+  left_join(colDataTmp, by="Barcode")
+```
+
+<!-- DEV -->
+
+```{r, eval=FALSE}
+# check boxplot: too busy,
+# with border
+p <- ggplot(dd2, aes(x=Barcode, y=rle)) + 
+  geom_boxplot()
+
+# colour by SampleGroup
+p <- ggplot(dd2, aes(x=Barcode, y=rle, colour=SampleName)) + 
+  geom_boxplot()
+ 
+p + facet_wrap(~SampleGroup, ncol=2)
+          
+# only keep 10 cells for now.          
+bcToGet <- gsub("-",".",colData(sce)$Barcode[1:10])
+dd10 <- dd2 %>% filter(Barcode %in% bcToGet)
+ggplot(dd10, aes(x=Barcode, y=rle)) + 
+  geom_boxplot()
+```
+
+<!-- scater:::.plotRLE_full -->
+
+```{r, eval=FALSE}
+# scater:::.plotRLE_full
+
+scater___plotRLE_full
+function (df, aesth, ncol, ...) 
+{
+    plot_out <- ggplot(df, aesth) + geom_boxplot(...) + stat_summary(geom = "crossbar", 
+        width = 0.65, fatten = 0, color = "white", fun.data = function(x) {
+            c(y = median(x), ymin = median(x), ymax = median(x))
+        }) + ylab("Relative log expression") + xlab("Sample") + 
+        theme_classic() + theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(), axis.line.x = element_blank())
+    plot_out
+}
+#<bytecode: 0x55f94f03bf60>
+#<environment: namespace:scater>
+```
+
+```{r, eval=FALSE}
+p <- ggplot(dd10, aes(x=Barcode, y=rle)) + 
+  geom_boxplot()
+
+p <- ggplot(dd10, aes(x=Barcode, y=rle, col=SampleGroup))
+#p + stat_summary(geom = "crossbar",
+```
+
+<!-- DEV -->
+
+```{r, eval=FALSE}
+#bcToGet <- gsub("-",".",colData(sce)$Barcode[1:1000])
+bcToGet <- gsub("-",".",colData(sce)$Barcode)
+ddToShow <- dd2 %>% filter(Barcode %in% bcToGet)
+
+ddToShowMedianRle <- ddToShow %>%
+  group_by(SampleName, Barcode) %>%
+  summarise(medianRle=median(rle,na.rm = TRUE))
+
+ddToShowMedianRleSorted <- ddToShowMedianRle %>%
+  group_by(SampleName) %>%
+  arrange(medianRle, .by_group = TRUE)
+
+ddToShowSort <- ddToShowMedianRleSorted$Barcode
+  
+# set levels
+ddToShow$Barcode <- factor(ddToShow$Barcode,
+                           levels=ddToShowSort)
+ddToShow <- ddToShow %>%
+  filter(!is.na(rle))
+p <- ggplot(ddToShow, aes(x=Barcode, y=rle, col=SampleName))
+p2 <- p +
+  stat_summary(geom = "pointrange", 
+        width = 0.20, fatten = 0,
+        mapping = aes(group = SampleName),
+        fun.data = function(x) {
+            c(y = median(x),
+              ymin = unname(quantile(x,probs=0.25)),
+              ymax = unname(quantile(x,probs=0.75))
+              )
+        }) +
+  stat_summary(geom = "crossbar", 
+        width = 0.20, fatten = 0,
+        color = "black",
+        fun.data = function(x) {
+            c(y = median(x),
+              ymin = median(x),
+              ymax = median(x)
+              )
+        }) +
+  ylab("Relative log expression") +
+  xlab("Sample") +
+  theme_classic() +
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(),
+        axis.line.x = element_blank()) +
+  geom_hline(yintercept = 0)
+#p2 + facet_wrap(~SampleName)
+```
+
+<!-- DEV -->
+
+```{r, eval=FALSE}
+# DEV
+p <- ggplot(dd, aes(x=Barcode, y=rle)) + 
+  geom_boxplot()
+#p
+
+p <- ggplot(dd2, aes(x=Barcode, y=rle))
+p + stat_summary(geom = "crossbar", 
+        width = 0.05, fatten = 0, color = "black", fun.data = function(x) {
+            c(y = median(x), ymin = median(x), ymax = median(x))
+        }) + ylab("Relative log expression") + xlab("Sample") + 
+        theme_classic() + theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(), axis.line.x = element_blank())
+```
+
+```{r}
+prepRleMat <- function(rleMat) {
+# derive long table for plotting
+#dd <- rawRleMat0 %>%
+dd <- rleMat %>%
+  data.frame() %>%
+  tibble::rownames_to_column("geneId") %>%
+  pivot_longer(!geneId, names_to = "Barcode", values_to = "rle")
+#rawRleMat <- calc_cell_RLE(counts(sce))
+colDataTmp <- data.frame(
+  colData(sce)[,c("Barcode", "SampleGroup", "SampleName")]
+  )
+colDataTmp$Barcode <- gsub("-", ".", colDataTmp$Barcode)
+# merge
+dd2 <- dd %>%
+  left_join(colDataTmp, by="Barcode")
+return(dd2)
+}
+#bcToGet <- gsub("-",".",colData(sce)$Barcode)
+myRlePlot <- function(ddToShow, bcToGet=NULL, sortBool=TRUE) {
+# Have function for code chunk above
+if(!is.null(bcToGet)) {
+  ddToShow <- ddToShow %>% filter(Barcode %in% bcToGet)
+}
+
+ddToShowMedianRle <- ddToShow %>%
+  group_by(SampleName, Barcode) %>%
+  summarise(medianRle=median(rle,na.rm = TRUE))
+
+ddToShowMedianRleSorted <- ddToShowMedianRle %>%
+  group_by(SampleName) %>%
+  arrange(Barcode, .by_group = TRUE)
+
+ddToShowSort <- ddToShowMedianRleSorted$Barcode
+  
+# set levels
+if(sortBool)
+{
+  ddToShowMedianRleSorted <- ddToShowMedianRle %>%
+  group_by(SampleName) %>%
+  arrange(medianRle, .by_group = TRUE)
+}
+  ddToShowSort <- ddToShowMedianRleSorted$Barcode
+
+  ddToShow$Barcode <- factor(ddToShow$Barcode,
+                           levels=ddToShowSort)
+
+ddToShow <- ddToShow %>%
+  filter(!is.na(rle))
+p <- ggplot(ddToShow, aes(x=Barcode, y=rle, col=SampleName))
+p2 <- p +
+  stat_summary(geom = "pointrange", 
+        width = 0.20, fatten = 0,
+        mapping = aes(group = SampleName),
+        fun.data = function(x) {
+            c(y = median(x),
+              ymin = unname(quantile(x,probs=0.25)),
+              ymax = unname(quantile(x,probs=0.75))
+              )
+        }) +
+  stat_summary(geom = "crossbar", 
+        width = 0.20, fatten = 0,
+        color = "black",
+        fun.data = function(x) {
+            c(y = median(x),
+              ymin = median(x),
+              ymax = median(x)
+              )
+        }) +
+  ylab("Relative log expression") +
+  xlab("Sample") +
+  theme_classic() +
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(),
+        axis.line.x = element_blank()) +
+  geom_hline(yintercept = 0)
+return(p2)
+}
+```
+
+```{r}
+rawRleMat <- calc_cell_RLE(counts(sce))
+colnames(rawRleMat) <- sce$Barcode
+
+dd2 <- prepRleMat(rawRleMat)
+p2 <- myRlePlot(dd2)
+```
+
+```{r}
+p2
+```
+
+
+```{r, eval=FALSE}
+p2 + facet_wrap(~SampleGroup)
+```        
+        
+<!-- plotRLE with sceRawPca: fail -->
+
 ```{r plot_rle_logRaw_Caron_5hCellPerSpl, cache.lazy = FALSE, eval=FALSE}
+# issue with NAs
 p <- plotRLE(
-    #tmp[,1:10],
-    tmp,
+    sceRawPca,
     exprs_values = "logcounts_raw",
     colour_by = "SampleName"
 ) + ggtitle(sprintf("RLE plot: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sRle.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
 ```
 
-```{r show_rle_logRaw_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sRle.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
+<!-- plotRLE with sce raw: fail -->
+
+```{r, eval=FALSE}
+p <- plotRLE(
+    sce,
+    exprs_values = "counts",
+    exprs_logged = FALSE,
+    colour_by = "SampleName"
+) + ggtitle(sprintf("RLE plot: %s", typeNorm))
+
+p
 ```
 
 ### log CPM
@@ -852,23 +1171,13 @@ p <- plotPCA(
 ) + ggtitle(sprintf("PCA plot: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sPca.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
-```
-
-```{r show_pca_logCpm_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sPca.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
 ```
 
 <!--
 Cell-wise RLE for the '`r typeNorm`' counts in the `r setName` set.
 -->
+
+<!-- plotRLE fails -->
 
 ```{r plot_rle_logCpm_Caron_5hCellPerSpl, cache.lazy = FALSE, eval=FALSE}
 p <- plotRLE(
@@ -886,11 +1195,26 @@ p
 ##ggsave(filename=tmpFn, plot=p, type="cairo-png")
 ```
 
-```{r show_rle_logCpm_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sRle.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
+
+```{r}
+cpmRleMat <- calc_cell_RLE(calculateCPM(sce, size_factors = NULL))
+colnames(cpmRleMat) <- sce$Barcode
+
+dd2 <- prepRleMat(cpmRleMat)
+p2 <- myRlePlot(dd2)
+```
+
+```{r}
+p2
+```
+
+<!-- p2 + coord_flip(), no need -->
+
+```{r, eval=FALSE}
+p2 + coord_flip() + theme(
+  #axis.title.y=element_blank(),
+  axis.text.y=element_blank(),
+  axis.ticks.y=element_blank())
 ```
 
 ### scran
@@ -920,19 +1244,9 @@ p <- plotPCA(
 ) + ggtitle(sprintf("PCA plot: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sPca.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
 ```
 
-```{r show_pca_deconv_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sPca.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
-```
+
 
 TSNE plot for the '`r typeNorm`' counts in the `r setName` set.
 
@@ -957,18 +1271,6 @@ p <- plotReducedDim(
 ) + ggtitle(sprintf("TSNE plot: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sTsne.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
-```
-
-```{r show_tsne_deconv_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sTsne.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
 ```
 
 UMAP plot for the '`r typeNorm`' counts in the `r setName` set.
@@ -994,25 +1296,15 @@ p <- plotReducedDim(
 ) + ggtitle(sprintf("UMAP plot: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sUmap.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
-```
-
-```{r show_umap_deconv_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sUmap.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
 ```
 
 <!--
 Cell-wise RLE for the '`r typeNorm`' counts in the `r setName` set.
 -->
 
-```{r plot_rle_deconv_Caron_5hCellPerSpl}
+<!-- plotRLE with scranPca: fail --> 
+
+```{r plot_rle_deconv_Caron_5hCellPerSpl, eval=FALSE}
 p <- plotRLE(
     scranPca,
     exprs_values = "logcounts",
@@ -1020,23 +1312,32 @@ p <- plotRLE(
 ) + ggtitle(sprintf("RLE plot: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sRle.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
 ```
 
-```{r show_rle_deconv_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sRle.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
+```{r}
+deconvRleMat <- calc_cell_RLE(logcounts(scranPca))
+colnames(deconvRleMat) <- sce$Barcode
+
+dd2 <- prepRleMat(deconvRleMat)
+p2 <- myRlePlot(dd2)
+```
+
+```{r}
+p2
 ```
 
 ### SCTransform
 
+<!--
+Remember we kept the sctransform counts separate from the deconvolution counts
+because the former filters out genes that are expressed in few cells by itself
+-->
+
 ```{r comp_pca_sct_Caron_5hCellPerSpl, cache.lazy = FALSE}
+tmpFn <- sprintf("%s/%s/Robjects/%s_postSct%s.Rds",
+		 projDir, outDirBit, setName, setSuf)
+sce <- readRDS(tmpFn)
+
 typeNorm <- "sctrans"
 
 reducedDim(sce, "PCA_sctrans_norm") <- reducedDim(
@@ -1060,18 +1361,23 @@ p <- plotReducedDim(
 ) + ggtitle(sprintf("PCA plot: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sPca.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
 ```
 
-```{r show_pca_sct_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sPca.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
+<!--
+somewhat surprising PCA plot
+with cells tight along PC1 and PC2
+-->
+
+
+```{r}
+percent.var <- attr(reducedDim(sce), "percentVar")
+chosen.elbow <- PCAtools::findElbowPoint(percent.var)
+chosen.elbow
+```
+
+```{r}
+plot(percent.var, xlab="PC", ylab="Variance explained (%)")
+abline(v=chosen.elbow, col="red")
 ```
 
 TSNE plot for the '`r typeNorm`' counts in the `r setName` set.
@@ -1097,18 +1403,6 @@ p <- plotReducedDim(
 ) + ggtitle(sprintf("TSNE plot: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sTsne.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
-```
-
-```{r show_tsne_sct_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sTsne.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
 ```
 
 UMAP plot for the '`r typeNorm`' counts in the `r setName` set.
@@ -1134,18 +1428,6 @@ p <- plotReducedDim(
 ) + ggtitle(sprintf("UMAP plot: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sUmap.png",
-##		 projDir, outDirBit, qcPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
-```
-
-```{r show_umap_sct_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sUmap.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
 ```
 
 Cell-wise RLE for the '`r typeNorm`' counts in the `r setName` set.
@@ -1160,18 +1442,20 @@ p <- plotRLE(
 ) + ggtitle(sprintf("RLE plot: %s", typeNorm))
 
 p
-
-# write plot to file:
-##tmpFn <- sprintf("%s/%s/%s/%s_sce_nz_postQc%s_%sRle.png",
-##		 projDir, outDirBit, normPlotDirBit, setName, setSuf, typeNorm)
-##ggsave(filename=tmpFn, plot=p, type="cairo-png")
 ```
 
-```{r show_rle_sct_Caron_5hCellPerSpl, eval=FALSE}
-tmpFn <- sprintf("%s/%s/%s_sce_nz_postQc%s_%sRle.png",
-		 dirRel, qcPlotDirBit, setName, setSuf, typeNorm)
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
+```{r}
+sctRleMat <- calc_cell_RLE(assay(sce, "sctrans_norm"))
+colnames(sctRleMat) <- sce$Barcode
+
+dd2 <- prepRleMat(deconvRleMat)
+p2 <- myRlePlot(dd2, sortBool=FALSE)
+```
+
+
+```{r}
+library(patchwork)
+p/p2
 ```
 
 ## Session information
