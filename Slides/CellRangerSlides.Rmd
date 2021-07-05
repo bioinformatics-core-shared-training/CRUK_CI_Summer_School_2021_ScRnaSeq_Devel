@@ -88,9 +88,10 @@ knitr::include_graphics('Images/CellRangerWebsite.png')
 ## Cell Ranger tools
 
 Cell Ranger includes a number of different tools for analysing scRNAseq data,
-including:
-* `cellranger mkref` - for making custom references
-* `cellranger count` - for aligning reads and generating a count matrix
+including:  
+
+* `cellranger mkref` - for making custom references  
+* `cellranger count` - for aligning reads and generating a count matrix  
 * `cellranger aggr` - for combining multiple samples and normalising the counts
 
 ## Preparing the raw fastq files
@@ -101,7 +102,7 @@ Cell Ranger requires the fastq file names to follow a convention:
 <SampleName>_S<SampleNumber>_L00<Lane>_<Read>_001.fastq.gz
 ```
 
-e.g. for a single samples in the Caron data set we have:
+e.g. for a single sample in the Caron data set we have:
 
 ```
     SRR9264343_S0_L001_I1_001.fastq.gz
