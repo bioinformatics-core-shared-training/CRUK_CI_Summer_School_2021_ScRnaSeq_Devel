@@ -32,15 +32,20 @@ params:
 
 ```{r norm_Caron.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
 library(knitr)
-# add 'dev="CairoPNG"' if X11 is not available
-#opts_chunk$set(dev="CairoPNG")
-
 cacheBool <- !TRUE
-require(knitr)
-opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
-opts_chunk$set(fig.width=7, fig.height=7)
+
+# if X11 is not available, add:
+# 'dev="CairoPNG"' in chunk param above
+# options(bitmapType='cairo')
+# opts_chunk$set(dev="CairoPNG")
+# library(Cairo)
+
 options(bitmapType='cairo') # if X11 is not available
 opts_chunk$set(dev="CairoPNG") # if X11 is not available
+library(Cairo) # if X11 is not available
+
+opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
+opts_chunk$set(fig.width=7, fig.height=7)
 set.seed(123) # for reproducibility
 ```
 
@@ -89,57 +94,40 @@ between cells. Normalisation and batch correction have different aims.
 Normalisation addresses technical differences only, while batch correction
 considers both technical and biological differences.
 
-
 <!-- PARAMS and LIBRARIES -->
 
 ```{r Caron_variables_norm}
-#normPlotDirBit <- "Plots/Norm" # not use anymore
-
 projDir <- ".." # or /home/ubuntu/CourseMaterials/scRNAseq
 dirRel <- ".."
 outDirBit <- "CourseMaterials"
 setName <- tolower("Caron")
 writeRds <- TRUE # FALSE
-
-# create folder for plots for normalisation:
-##dir.create(sprintf("%s/%s/%s", projDir, outDirBit, normPlotDirBit),
-##           showWarnings = FALSE,
-##recursive = TRUE)
 ```
 
 ```{r Caron_libraries_norm, include=FALSE, results='hide', message=FALSE, warning=FALSE}
 library(scater)
 library(scran)
-library(ggplot2)
-library(dplyr)
-library(tidyr)
+library(tidyverse)
 library(BiocSingular)
 library(BiocParallel)
 library(glue)
 
+# prepare 'cluster' for multicore processing
+# use 7 workers
 bpp <- MulticoreParam(7)
-
-library(Cairo) # if X11 is not available
 ```
 
 ## Load object
 
-We will load the R object created after QC.
+We will load the R object created after QC and check its content (class, dimensions, assays, ...)
 
 ```{r Caron_norm_readIn_5hCellPerSpl, cache.lazy = FALSE}
 # Read object in:
-tmpFn <- "../CourseMaterials/Robjects/Caron_filtered.rds"
-sce <- readRDS(tmpFn)
+sce <- readRDS("../CourseMaterials/Robjects/Caron_filtered.rds")
 sce
 ```
 
 ```{r}
-# PATCH names
-#samplesheet <- readr::read_tsv("../CourseMaterials/Data/sample_sheet.tsv")
-#samplesheet %>%
-#	as.data.frame() %>%
-#	DT::datatable(rownames = FALSE, options = list(dom="tpl", nrows=20))
-
 dd <- colData(sce) %>%
   data.frame() %>%
   rename(SampleName=Sample) %>% # TODO: change that in preProc
@@ -148,47 +136,47 @@ dd <- colData(sce) %>%
 colData(sce) <- dd  
 ```
 
-Sample sheet:
+We can also count the number of cells for each sample:
 
 ```{r Caron_norm_sampleSheet}
 colData(sce) %>%
+  # colData() returns a DFrame
+  # that we need to convert to a data.frame for parsing
   data.frame() %>%
-  select(SampleName, SampleId, SampleGroup) %>%
+  # group by some columns only: SampleName, SampleId, SampleGroup
+  # (could do with SampleName only but we would miss SampleId, SampleGroup later)
   group_by(SampleName, SampleId, SampleGroup) %>%
+  # count cells for each group
   summarise(nbCells=n()) %>%
+  # display output table
   DT::datatable(rownames = FALSE,
-                options = list(dom="tpl", pageLength = 15, nrows=20))
+                options = list(dom="tpl", pageLength = 15))
 ```
 
-Subsample cells down to 500 per sample
+For analyses to run within the time allocated to sessions,
+we will subsample cells down to 500 per sample:
 
 ```{r Caron_norm_downsample}
+# have a variable to keep information on downsampling
+# to use to describe data sets and files.     
 setSuf <- "_5hCellPerSpl"
+# number of cells to keep
 nbCells <- 500
 
 # have new list of cell barcodes for each sample
-sce.master <- sce
-vec.bc <- colData(sce.master) %>%
+vec.bc <- colData(sce) %>%
 	data.frame() %>%
 	filter(!SampleId == "SRR9264351") %>%
 	group_by(SampleName) %>%
 	sample_n(nbCells) %>%
 	pull(Barcode)
-```
 
+# subsetting a SCE (SingleCellExperiment) object requires indices not names
+# so find index for each cell we will keep:
+tmpInd <- which(colData(sce)$Barcode %in% vec.bc) # mind QC metrics will be wrong
+# subset cells from the existing SCE object:
+sce <- sce[,tmpInd] # this update 'sce', e.g. its assays, but not the cell meta data.
 
-
-Subset cells from the SCE object:
-
-```{r Caron_subset_sce}
-tmpInd <- which(colData(sce.master)$Barcode %in% vec.bc) # mind QC metrics will be wrong
-sce <- sce.master[,tmpInd]
-rm(sce.master)
-```
-
-<!-- Check columns data: -->
-
-```{r Caron_norm_sampleSheet_postDownSampling}
 colData(sce) %>%
   data.frame() %>%
   select(SampleName, SampleId, SampleGroup) %>%
@@ -200,24 +188,39 @@ colData(sce) %>%
 
 <!--
 # mind that genes were filtered using all cells, not just those sampled here.
+# check for lowly expressed genes:
 -->
 
-<!-- We write the R object to '`r sprintf("%s_postQc%s.Rds", setName, setSuf)`'. -->
-We write the R object to '`r glue("{setName}_postQc{setSuf}.Rds")`'.
+```{r Caron_norm_filterGenes}
+# find out which genes are expressed 
+lowExpGenes <- rowSums(counts(sce)) > 5
+table(lowExpGenes)
 
-```{r Caron_downsample_write, eval=writeRds}
-# Write object to file
-#getwd()
-tmpFn <- sprintf("%s/%s/Robjects/%s_postQc%s.Rds",
-		 projDir, outDirBit, setName, setSuf)
-saveRDS(sce, tmpFn)
+# for each gene in each cell: is it expressed?
+exprLogic <- counts(sce) > 0 # pot exerc gt 2, 5
+# count cells where gene is expressed,
+# and ask if the number of cells is gt 5
+detectedGenes <- rowSums(exprLogic) > 5
+# count genes in each class, not-detected and detected
+table(detectedGenes)
+
+# remove these genes:
+sce <- sce[detectedGenes,] # removes genes but does not update QC metrics.
+
+# update cell QC metrics
+sce <- addPerCellQC(sce)
+
+# update gene QC metrics
+sce <- addPerFeatureQC(sce, BPPARAM = bpp)
 ```
 
-```{r Caron_downsample_read, eval=TRUE, cache.lazy = FALSE}
+<!-- We write the R object to '`r glue("{setName}_postQc{setSuf}.Rds")`'. -->
+We write the R object to '`r str_glue("{setName}_postQc{setSuf}.Rds")`'.
+
+```{r Caron_downsample_write}
 # Write object to file
-tmpFn <- sprintf("%s/%s/Robjects/%s_postQc%s.Rds",
-		 projDir, outDirBit, setName, setSuf)
-sce <- readRDS(tmpFn)
+tmpFn <- str_glue("{projDir}/{outDirBit}/{setName}_postQc{setSuf}.Rds")
+saveRDS(sce, tmpFn)
 ```
 
 ## Scaling normalization
