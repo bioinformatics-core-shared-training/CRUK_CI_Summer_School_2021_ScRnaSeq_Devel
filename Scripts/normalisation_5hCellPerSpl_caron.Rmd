@@ -32,15 +32,20 @@ params:
 
 ```{r norm_Caron.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
 library(knitr)
-# add 'dev="CairoPNG"' if X11 is not available
-#opts_chunk$set(dev="CairoPNG")
-
 cacheBool <- !TRUE
-require(knitr)
-opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
-opts_chunk$set(fig.width=7, fig.height=7)
+
+# if X11 is not available, add:
+# 'dev="CairoPNG"' in chunk param above
+# options(bitmapType='cairo')
+# opts_chunk$set(dev="CairoPNG")
+# library(Cairo)
+
 options(bitmapType='cairo') # if X11 is not available
 opts_chunk$set(dev="CairoPNG") # if X11 is not available
+library(Cairo) # if X11 is not available
+
+opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
+opts_chunk$set(fig.width=7, fig.height=7)
 set.seed(123) # for reproducibility
 ```
 
@@ -89,57 +94,40 @@ between cells. Normalisation and batch correction have different aims.
 Normalisation addresses technical differences only, while batch correction
 considers both technical and biological differences.
 
-
 <!-- PARAMS and LIBRARIES -->
 
 ```{r Caron_variables_norm}
-#normPlotDirBit <- "Plots/Norm" # not use anymore
-
 projDir <- ".." # or /home/ubuntu/CourseMaterials/scRNAseq
 dirRel <- ".."
 outDirBit <- "CourseMaterials"
 setName <- tolower("Caron")
 writeRds <- TRUE # FALSE
-
-# create folder for plots for normalisation:
-##dir.create(sprintf("%s/%s/%s", projDir, outDirBit, normPlotDirBit),
-##           showWarnings = FALSE,
-##recursive = TRUE)
 ```
 
 ```{r Caron_libraries_norm, include=FALSE, results='hide', message=FALSE, warning=FALSE}
 library(scater)
 library(scran)
-library(ggplot2)
-library(dplyr)
-library(tidyr)
+library(tidyverse)
 library(BiocSingular)
 library(BiocParallel)
 library(glue)
 
+# prepare 'cluster' for multicore processing
+# use 7 workers
 bpp <- MulticoreParam(7)
-
-library(Cairo) # if X11 is not available
 ```
 
 ## Load object
 
-We will load the R object created after QC.
+We will load the R object created after QC and check its content (class, dimensions, assays, ...)
 
 ```{r Caron_norm_readIn_5hCellPerSpl, cache.lazy = FALSE}
 # Read object in:
-tmpFn <- "../CourseMaterials/Robjects/Caron_filtered.rds"
-sce <- readRDS(tmpFn)
+sce <- readRDS("../CourseMaterials/Robjects/Caron_filtered.rds")
 sce
 ```
 
 ```{r}
-# PATCH names
-#samplesheet <- readr::read_tsv("../CourseMaterials/Data/sample_sheet.tsv")
-#samplesheet %>%
-#	as.data.frame() %>%
-#	DT::datatable(rownames = FALSE, options = list(dom="tpl", nrows=20))
-
 dd <- colData(sce) %>%
   data.frame() %>%
   rename(SampleName=Sample) %>% # TODO: change that in preProc
@@ -148,47 +136,47 @@ dd <- colData(sce) %>%
 colData(sce) <- dd  
 ```
 
-Sample sheet:
+We can also count the number of cells for each sample:
 
 ```{r Caron_norm_sampleSheet}
 colData(sce) %>%
+  # colData() returns a DFrame
+  # that we need to convert to a data.frame for parsing
   data.frame() %>%
-  select(SampleName, SampleId, SampleGroup) %>%
+  # group by some columns only: SampleName, SampleId, SampleGroup
+  # (could do with SampleName only but we would miss SampleId, SampleGroup later)
   group_by(SampleName, SampleId, SampleGroup) %>%
+  # count cells for each group
   summarise(nbCells=n()) %>%
+  # display output table
   DT::datatable(rownames = FALSE,
-                options = list(dom="tpl", pageLength = 15, nrows=20))
+                options = list(dom="tpl", pageLength = 15))
 ```
 
-Subsample cells down to 500 per sample
+For analyses to run within the time allocated to sessions,
+we will subsample cells down to 500 per sample:
 
 ```{r Caron_norm_downsample}
+# have a variable to keep information on downsampling
+# to use to describe data sets and files.     
 setSuf <- "_5hCellPerSpl"
+# number of cells to keep
 nbCells <- 500
 
 # have new list of cell barcodes for each sample
-sce.master <- sce
-vec.bc <- colData(sce.master) %>%
+vec.bc <- colData(sce) %>%
 	data.frame() %>%
 	filter(!SampleId == "SRR9264351") %>%
 	group_by(SampleName) %>%
 	sample_n(nbCells) %>%
 	pull(Barcode)
-```
 
+# subsetting a SCE (SingleCellExperiment) object requires indices not names
+# so find index for each cell we will keep:
+tmpInd <- which(colData(sce)$Barcode %in% vec.bc) # mind QC metrics will be wrong
+# subset cells from the existing SCE object:
+sce <- sce[,tmpInd] # this update 'sce', e.g. its assays, but not the cell meta data.
 
-
-Subset cells from the SCE object:
-
-```{r Caron_subset_sce}
-tmpInd <- which(colData(sce.master)$Barcode %in% vec.bc) # mind QC metrics will be wrong
-sce <- sce.master[,tmpInd]
-rm(sce.master)
-```
-
-<!-- Check columns data: -->
-
-```{r Caron_norm_sampleSheet_postDownSampling}
 colData(sce) %>%
   data.frame() %>%
   select(SampleName, SampleId, SampleGroup) %>%
@@ -200,24 +188,43 @@ colData(sce) %>%
 
 <!--
 # mind that genes were filtered using all cells, not just those sampled here.
+# check for lowly expressed genes:
 -->
 
-<!-- We write the R object to '`r sprintf("%s_postQc%s.Rds", setName, setSuf)`'. -->
-We write the R object to '`r glue("{setName}_postQc{setSuf}.Rds")`'.
+```{r Caron_norm_filterGenes}
+# find out which genes are expressed 
+lowExpGenes <- rowSums(counts(sce)) > 5
+table(lowExpGenes)
 
-```{r Caron_downsample_write, eval=writeRds}
-# Write object to file
-#getwd()
-tmpFn <- sprintf("%s/%s/Robjects/%s_postQc%s.Rds",
-		 projDir, outDirBit, setName, setSuf)
-saveRDS(sce, tmpFn)
+# for each gene in each cell: is it expressed?
+exprLogic <- counts(sce) > 0 # pot exerc gt 2, 5
+# count cells where gene is expressed,
+# and ask if the number of cells is gt 5
+detectedGenes <- rowSums(exprLogic) > 5
+# count genes in each class, not-detected and detected
+table(detectedGenes)
+
+# remove these genes:
+sce <- sce[detectedGenes,] # removes genes but does not update QC metrics.
+
+# update cell QC metrics
+sce <- addPerCellQC(sce)
+
+# update gene QC metrics
+sce <- addPerFeatureQC(sce, BPPARAM = bpp)
 ```
 
-```{r Caron_downsample_read, eval=TRUE, cache.lazy = FALSE}
+<!-- We write the R object to '`r glue("{setName}_postQc{setSuf}.Rds")`'. -->
+We write the R object to '`r str_glue("{setName}_postQc{setSuf}.Rds")`'.
+
+```{r Caron_downsample_write}
 # Write object to file
-tmpFn <- sprintf("%s/%s/Robjects/%s_postQc%s.Rds",
-		 projDir, outDirBit, setName, setSuf)
-sce <- readRDS(tmpFn)
+# file name:
+tmpFn <- str_glue("{projDir}/{outDirBit}/{setName}_postQc{setSuf}.Rds")
+# write to file
+saveRDS(sce, tmpFn)
+# tidy:
+rm(tmpFn)
 ```
 
 ## Scaling normalization
@@ -352,9 +359,7 @@ see edgeR calcNormFactors
 -->
 
 ```{r scran_Fig3_Caron}
-tmpFn <- sprintf("%s/Images/scran_Fig3.png", "..")
-knitr::include_graphics(tmpFn, auto_pdf = TRUE)
-rm(tmpFn)
+knitr::include_graphics("../Images/scran_Fig3.png", auto_pdf = TRUE)
 ```
 
 Cluster cells then normalise.
@@ -365,18 +370,6 @@ Cluster cells then normalise.
 set.seed(100) # clusters with PCA from irlba with approximation
 clust <- quickCluster(sce, BPPARAM=bpp) # slow with all cells.
 table(clust)
-
-# write to file
-##tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_quickClus%s.Rds",
-##		 projDir, outDirBit, setName, setSuf)
-##saveRDS(clust, tmpFn)
-```
-
-```{r load_quickClus_norm_Caron_5hCellPerSpl, cache.lazy = FALSE, eval=FALSE}
-# read from file
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_quickClus%s.Rds",
-		 projDir, outDirBit, setName, setSuf)
-clust <- readRDS(tmpFn)
 ```
 
 #### Compute size factors
@@ -388,39 +381,15 @@ sce <- computeSumFactors(sce,
 			 min.mean = 0.1,
 			 BPPARAM = bpp)
 deconv.sf <- sizeFactors(sce)
-
-# write to file
-##tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_deconvSf%s.Rds",
-##		 projDir, outDirBit, setName, setSuf)
-##saveRDS(deconv.sf, tmpFn)
-```
-
-```{r load_deconvSf_norm_Caron_5hCellPerSpl, cache.lazy = FALSE, eval=FALSE}
-# read from file
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_deconvSf%s.Rds",
-		 projDir, outDirBit, setName, setSuf)
-deconv.sf <- readRDS(tmpFn)
-```
-
-```{r}
 summary(deconv.sf)
+
+# min.mean
+# A numeric scalar specifying the minimum (library size-adjusted) average count of genes to be used for normalization.
 ```
 
 Plot deconvolution size factors against library size factors:
 
-```{r scatter_deconvSf_libSf_plot_norm_Caron_5hCellPerSpl, eval=FALSE}
-plot(lib.sf,
-     deconv.sf,
-     xlab="Library size factor",
-     ylab="Deconvolution size factor",
-     log='xy',
-     pch=16,
-     col=as.integer(factor(sce$SampleGroup)))
-abline(a=0, b=1, col="red")
-```
-
 ```{r scatter_deconvSf_libSf_colBy_plot_norm_Caron_5hCellPerSpl}
-
 sce <- addPerFeatureQC(sce, BPPARAM = bpp) # PATCH
 
 colData(sce)$cell_sparsity <- 1 - (colData(sce)$detected / nrow(sce))
@@ -470,6 +439,7 @@ For each cell, raw counts for genes are divided by the size factor for that cell
 
 ```{r logNormCounts_norm_Caron_5hCellPerSpl}
 sce <- logNormCounts(sce) # adds logcounts
+# check list of assays stored:
 print(assayNames(sce))
 ```
 
@@ -481,9 +451,9 @@ sceDeconv <- sce
 
 ```{r sce_write_norm_Caron_5hCellPerSpl, eval=writeRds}
 # write to file
-tmpFn <- sprintf("%s/%s/Robjects/%s_postDeconv%s.Rds",
-		 projDir, outDirBit, setName, setSuf)
+tmpFn <- str_glue("{projDir}/{outDirBit}/{setName}_postDeconv{setSuf}.Rds")
 saveRDS(sceDeconv, tmpFn)
+rm(tmpFn)
 ```
 
 ## Exercise 1
@@ -506,54 +476,80 @@ of expression (heteroskedasticity). This affects downstream dimensionality
 reduction as the few main new dimensions are usually correlated with library
 size. SCTransform addresses the issue by regressing library size out of raw
 counts and providing residuals to use as normalized and variance-stabilized
-expression values in downstream analysis. We will use the
+expression values in some downstream analyses, such as dimensionality reduction.
+We will use the
 [sctransform vignette](https://cran.r-project.org/web/packages/sctransform/index.html).
 
+We will first obtain the raw counts matrix:
+
 ```{r counts_sct_Caron_5hCellPerSpl}
+# keep raw counts in a 'counts' variable:
 counts <- counts(sce)
+# check the class of the object
+# expect a 'dgCMatrix': Compressed, sparse, column-oriented numeric matrices
+# the “standard” class for sparse numeric matrices in the Matrix package
 print(class(counts))
+# check the dimensions of the object
 print(dim(counts))
+# name columns (cells) with barcodes
 colnames(counts) <- colData(sce)$Barcode
 ```
 
 ### Inspect data
 
-We will now calculate some properties and visually inspect the data. Our main interest is in the general trends not in individual outliers. Neither genes nor cells that stand out are important at this step, but we focus on the global trends.
+We will now calculate some properties and visually inspect the data. Our main interest is in the general trends not in individual outliers. Neither genes nor cells that stand out are important at this step; we focus on the global trends.
 
-Derive gene and cell attributes from the UMI matrix.
+#### Derive gene and cell attributes from the UMI matrix
+
+Gene attributes include for each gene:
+
+* mean UMI count across cells
+* number of cells where the gene is detected
+* variance of UMI counts across cells
+* the mean and variance above on the log10 scale
+
+Cells attributes include for each cell:
+
+* total UMI count across genes (library size)
+* number of genes detected (with at least 1 UMI)
 
 ```{r attr_comp_sct_Caron_5hCellPerSpl}
+# gene attributes:
+# prepare a data frame named e.g. 'gene_attr' to keep gene attributes, inc:
 gene_attr <- data.frame(mean = rowMeans(counts), 
                         detection_rate = rowMeans(counts > 0),
-                        var = apply(counts, 1, var))
+                        var = rowVars(counts))
 gene_attr$log_mean <- log10(gene_attr$mean)
 gene_attr$log_var <- log10(gene_attr$var)
+# name rows of the 'gene_attr' data frame:
 rownames(gene_attr) <- rownames(counts)
+
+# cell attributes:
 cell_attr <- data.frame(n_umi = colSums(counts),
                         n_gene = colSums(counts > 0))
 rownames(cell_attr) <- colnames(counts)
 ```
 
-Gene attributes:
+#### Gene attributes
 
 ```{r gene_attr_sct_Caron_5hCellPerSpl}
 dim(gene_attr)
 head(gene_attr)
 ```
 
-Cell attributes:
+#### Cell attributes
 
 ```{r cell_attr_sct_Caron_5hCellPerSpl}
 dim(cell_attr)
 head(cell_attr)
 ```
 
-Mean-variance relationship
+#### Mean-variance relationship
 
-For the genes, we can see that up to a mean UMI count of 0 the variance follows
-the line through the origin with slop one, i.e. variance and mean are roughly
-equal as expected under a Poisson model. However, genes with a higher average
-UMI count show overdispersion compared to Poisson.
+For the genes, on the log10 scale we can see that up to a mean UMI count of 0
+the variance follows the line through the origin with slop one,
+i.e. variance and mean are roughly equal as expected under a Poisson model.
+However, genes with a higher average UMI count show overdispersion compared to Poisson.
 
 ```{r attr_plot_sct_Caron_5hCellPerSpl}
 ggplot(gene_attr, aes(log_mean, log_var)) + 
@@ -562,7 +558,7 @@ ggplot(gene_attr, aes(log_mean, log_var)) +
   geom_abline(intercept = 0, slope = 1, color='red')
 ```
 
-Mean-detection-rate relationship
+#### Mean-detection-rate relationship
 
 In line with the previous plot, we see a lower than expected detection rate in
 the medium expression range. However, for the highly expressed genes, the rate
@@ -581,6 +577,10 @@ ggplot(gene_attr, aes(log_mean, detection_rate)) +
   theme_gray(base_size = 8)
 ```
 
+#### Cells attributes
+
+The plot below show the relationship between the to cell attributes computed: library size (n_umi) and number of genes detected (n_gene).
+
 ```{r scatter_nGene_nUmi_sct_Caron_5hCellPerSpl, eval=FALSE}
 ggplot(cell_attr, aes(n_umi, n_gene)) + 
   geom_point(alpha=0.3, shape=16) + 
@@ -588,6 +588,8 @@ ggplot(cell_attr, aes(n_umi, n_gene)) +
 ```
 
 ### Transformation
+
+#### Method
 
 "Based on the observations above, which are not unique to this particular data
 set, we propose to model the expression of each gene as a negative binomial
@@ -604,64 +606,133 @@ relationship and the dependency of mean and latent factors, then the result
 should have mean zero and a stable variance across the range of expression."
 [sctransform vignette](https://cran.r-project.org/web/packages/sctransform/index.html).
 
-Estimate model parameters and transform data
+In short:
 
-The vst function estimates model parameters and performs the variance stabilizing
-transformation. Here we use the log10 of the total UMI counts of a cell as 
+* expression of a gene is modeled by a negative binomial random variable with
+a mean that depends on library size
+* use library size as independent variable in regression model
+* fit model for each gene, then combine data across genes to fit parameters
+* convert UMI counts to residuals akin to the number of standard deviations
+away from the expected mean.
+
+Assumptions:
+
+* accurate model of the mean-variance relationship
+* accurate model of the dependency of mean and latent factors
+
+Outcome:
+
+* mean zero
+* stable variance across expression range
+
+#### Estimation and transformation
+
+We will now estimate model parameters and transform data
+
+The `vst` function estimates model parameters and performs the variance stabilizing
+transformation.
+
+Here we use the log10 of the total UMI counts of a cell as 
 variable for sequencing depth for each cell. After data transformation we plot 
 the model parameters as a function of gene mean (geometric mean).
 
 ```{r comp_sct_Caron_5hCellPerSpl, warning=FALSE}
 print(dim(counts))
-# We use the Future API for parallel processing; set parameters here
+# We use the Future API for parallel processing;
+# set parameters here
 future::plan(strategy = 'multicore', workers = 7)
 options(future.globals.maxSize = 10 * 1024 ^ 3)
 
-set.seed(44)
-vst_out <- sctransform::vst(counts,
-			    latent_var = c('log_umi'),
-			    return_gene_attr = TRUE,
-			    return_cell_attr = TRUE,
-			    show_progress = FALSE)
-sctransform::plot_model_pars(vst_out)
+# transform counts:
+set.seed(44) # for reproducibility
+vst_out <- sctransform::vst(
+  counts, # A matrix of UMI counts with genes as rows and cells as columns
+  latent_var = c('log_umi'), # The independent variables to regress out as a character vector
+  return_gene_attr = TRUE, # Make cell attributes part of the output
+  return_cell_attr = TRUE, # Calculate gene attributes and make part of output
+  verbosity = 0 # An integer specifying what to show (0: nothing, 1: messages, 2: + progress bar)
+  )
 ```
 
-Inspect model
+#### Parameters plots
+
+```{r plot_sct_Caron_5hCellPerSpl}
+# diagnostic plots: estimated and fitted model parameters
+# by default parameters shown are:
+# - intercept
+# - latent variables, here log_umi
+# - overdispersion factor (od_factor)
+sctransform::plot_model_pars(
+  vst_out, # The output of a vst run
+  verbosity = 1 # Messages only, no progress bar
+  )
+```
+
+Inspect model:
 
 ```{r model_show_sct_Caron_5hCellPerSpl}
 print(vst_out$model_str)
 ```
 
-We will look at several genes in more detail.
+We will look at several genes in more detail by plotting the observed UMI counts and model.
+
+For each gene of interest, plots include:
+
+* the observed cell attribute (UMI counts) against the latent variable (library size) (by default), and the fitted model as a pink line showing the expected UMI counts given the model and a shaded region spanning one standard deviation from the expected value.
+* the residuals against the latent variable
+
+We will look at two genes: 'RPL10' and 'HBB':
 
 ```{r plot_model_1_sct_Caron_5hCellPerSpl}
 rowData(sce) %>%
 	as.data.frame %>%
-	filter(Symbol %in% c('MALAT1', 'RPL10', 'FTL'))
+	filter(Symbol %in% c('RPL10', 'HBB'))
 
-sctransform::plot_model(vst_out,
-			counts,
-			c('ENSG00000251562', 'ENSG00000147403', 'ENSG00000087086'),
-			plot_residual = TRUE)
+ensId <- rowData(sce) %>%
+	as.data.frame %>%
+	filter(Symbol %in% c('RPL10', 'HBB')) %>%
+  pull("ID")
+
+sctransform::plot_model(
+  vst_out, # The output of a vst run
+  counts, # UMI count matrix
+  ensId, # Vector of genes to plot
+  plot_residual = TRUE
+  )
 ```
 
-```{r plot_model_2_sct_Caron_5hCellPerSpl, eval=FALSE}
-sctransform::plot_model(vst_out,
-			counts,
-			c('ENSG00000087086'),
-			plot_residual = TRUE,
-			show_nr = TRUE,
-			arrange_vertical = FALSE)
+<!-- exercise ? -->
+
+```{r, eval=FALSE}
+otherGene = "BLA"
+
+rowData(sce) %>%
+	as.data.frame %>%
+	filter(Symbol %in% c(otherGene)
+
+ensId <- rowData(sce) %>%
+	as.data.frame %>%
+	filter(Symbol %in% c(otherGene)) %>%
+  pull("ID")
+
+sctransform::plot_model(
+  vst_out,
+  counts,
+  ensId,
+  plot_residual = TRUE
+  )
 ```
 
-Distribution of residual mean:
+#### Overall properties
+
+The distribution of residual mean is cetered around 0:
 
 ```{r plot_model_resMean_sct_Caron_5hCellPerSpl}
 ggplot(vst_out$gene_attr, aes(residual_mean)) +
 	geom_histogram(binwidth=0.01)
 ```
 
-Distribution of residual variance:
+The distribution of residual variance is centered around 1:
 
 ```{r plot_model_resVar_sct_Caron_5hCellPerSpl}
 ggplot(vst_out$gene_attr, aes(residual_variance)) +
@@ -670,19 +741,7 @@ ggplot(vst_out$gene_attr, aes(residual_variance)) +
 	xlim(0, 10)
 ```
 
-Variance against mean (residuals):
-
-```{r plot_model_resVar_resMean_sct_Caron_5hCellPerSpl}
-ggplot(vst_out$gene_attr, aes(x=residual_mean, y=residual_variance)) +
-	geom_point(alpha=0.3, shape=16) + 
-	#xlim(0, 0.5) +
-	#ylim(0, 10) +
-	xlim(0, quantile(vst_out$gene_attr$residual_mean, probs=0.95)) +
-	ylim(0, quantile(vst_out$gene_attr$residual_variance, probs=0.95)) +
-	geom_density_2d()
-```
-
-Variance against mean (genes):
+The following plot of the residual variance against the mean: after transformation there is no relationship between gene mean and variance.
 
 ```{r plot_model_resVar_gMean_sct_Caron_5hCellPerSpl}
 ggplot(vst_out$gene_attr,
@@ -691,27 +750,19 @@ ggplot(vst_out$gene_attr,
        geom_density_2d(size = 0.3)
 ```
 
-Check genes with large residual variance:
+Check genes with large residual variance. These genes would be markers of expected cell populations. Note how they represent a great range of mean UMI and detection rate values.
 
 ```{r table_show_sct_Caron_5hCellPerSpl}
 dd <- vst_out$gene_attr %>%
 	arrange(-residual_variance) %>%
-	slice_head(n = 22) %>%
+	slice_head(n = 10) %>%
 	mutate(across(where(is.numeric), round, 2))
 
 dd %>% tibble::rownames_to_column("ID") %>%
 	left_join(as.data.frame(rowData(sce))[,c("ID", "Symbol")], "ID") %>%
 	DT::datatable(rownames = FALSE)
 ```
-
-<!-- Write outcome to file: -->
-
-```{r table_write_sct_Caron_5hCellPerSpl, eval=FALSE}
-# write to file
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_vst_out%s.Rds",
-		 projDir, outDirBit, setName, setSuf)
-saveRDS(vst_out, tmpFn)
-```
+### Storage
 
 Check transformed values:
 
@@ -733,17 +784,14 @@ so to add vst_out$y as an assay we need to remove the missing genes.
 
 sceOrig <- sce
 sceOrig
-tmpInd <- which(rownames(sce) %in% rownames(vst_out$y))
-cols.meta <- colData(sceOrig)
-rows.meta <- rowData(sceOrig)
-
-new.counts <- counts(sceOrig)[tmpInd, ]
-sce <- SingleCellExperiment(list(counts=new.counts))
-
-# reset the column data on the new object
-colData(sce) <- cols.meta
-rowData(sce) <- rows.meta[tmpInd, ]
-assayNames(sce)
+geneOverlap <- rownames(sce) %in% rownames(vst_out$y)
+if(!all(geneOverlap))
+{
+  table(rownames(sce) %in% rownames(vst_out$y))
+  tmpInd <- which(rownames(sce) %in% rownames(vst_out$y))
+  sce <- sce[tmpInd,]
+  assayNames(sce)
+}
 ```
 
 ```{r copyVstMat_sct_Caron_5hCellPerSpl}
