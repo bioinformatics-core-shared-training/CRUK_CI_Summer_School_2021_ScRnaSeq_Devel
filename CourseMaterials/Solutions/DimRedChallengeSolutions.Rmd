@@ -15,7 +15,7 @@ library(scran)
 
 
 ```{r Load}
-sce <- readRDS("caron_sce_nz_postDeconv_5hCellPerSpl.Rds")
+sce <- readRDS("../Robjects/caron_postDeconv_5hCellPerSpl.Rds")
 ```
 
 ## Challenge 1
@@ -40,10 +40,10 @@ Can you plot t-SNE and UMAP with your chosen PCs.
 ```{r yourCode2}
 sce <- runTSNE(sce, dimred="PCA",perplexity=50, rand_seed=123)
 
-plotTSNE(sce, colour_by="Sample.Name",size_by="sum") 
+plotTSNE(sce, colour_by="Sample",size_by="sum") 
 
 set.seed(123)
 sce <- runUMAP(sce, dimred="PCA")
-plotUMAP(sce,colour_by="Sample.Name")
+plotUMAP(sce,colour_by="Sample")
 ```
 

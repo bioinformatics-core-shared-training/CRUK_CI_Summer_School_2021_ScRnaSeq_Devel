@@ -1,6 +1,6 @@
 ---
 title: "Dimensionality Reduction Challenge"
-author: "eynep Kalender Atak"
+author: "Zeynep Kalender Atak"
 date: "07/06/2021"
 output: html_document
 ---
@@ -15,7 +15,7 @@ library(scran)
 
 
 ```{r Load}
-sce <- readRDS("caron_sce_nz_postDeconv_5hCellPerSpl.Rds")
+sce <- readRDS("../Robjects/caron_postSct_5hCellPerSpl.Rds")
 ```
 
 ## Challenge 1

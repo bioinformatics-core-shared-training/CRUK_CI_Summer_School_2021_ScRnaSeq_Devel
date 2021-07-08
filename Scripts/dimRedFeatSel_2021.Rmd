@@ -1,0 +1,381 @@
+---
+title: "CRUK CI Summer School 2021 - Introduction to single-cell RNA-seq analysis"
+author: "Stephane Ballereau, Zeynep Kalender Atak"
+date: "July 2021"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+  html_book:
+    code_folding: show
+  html_notebook:
+    fig_caption: yes
+    fig_height: 4
+    fig_width: 6
+    number_sections: yes
+    self_contained: yes
+    toc: yes
+    toc_float: yes
+subtitle: Feature Selection and Dimensionality Reduction
+params:
+  bookType: mk
+  cacheBool: no
+---
+
+```{r dimRedForViz.knitr_options, include=FALSE, echo=FALSE, dev="CairoPNG"}
+set.seed(123) # for reproducibility
+```
+
+# Learning Objectives
+* 
+*
+*
+
+
+# Feature Selection 
+
+Source: [Dimensionality Reduction] (https://bioconductor.org/books/release/OSCA/dimensionality-reduction.html) chapter in OSCA Book. 
+
+We often use scRNA-seq data in exploratory analyses to characterize heterogeneity across cells. Procedures like clustering and dimensionality reduction compare cells based on their gene expression profiles, which involves aggregating per-gene differences into a single (dis)similarity metric between a pair of cells. The choice of genes to use in this calculation has a major impact on the behavior of the metric and the performance of downstream methods. We want to select genes that contain useful information about the biology of the system while removing genes that contain random noise. This aims to preserve interesting biological structure without the variance that obscures that structure, and to reduce the size of the data to improve computational efficiency of later steps.
+
+The simplest approach to feature selection is to select the most variable genes based on their expression across the population. This assumes that genuine biological differences will manifest as increased variation in the affected genes, compared to other genes that are only affected by technical noise or a baseline level of “uninteresting” biological variation (e.g., from transcriptional bursting). Several methods are available to quantify the variation per gene and to select an appropriate set of highly variable genes (HVGs). 
+
+## Load packages
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+library(scater) 
+library(scran)
+library(PCAtools)
+```
+
+## Load data
+
+We will load the R file keeping the SCE object with the normalised counts for 500 cells per sample.
+
+```{r, cache=FALSE}
+sce <- readRDS("../CourseMaterials/Robjects/caron_postDeconv_5hCellPerSpl.Rds")
+sce
+```
+
+## Quantifying per-gene variation
+Some assays allow the inclusion of known molecules in a known amount covering a wide range, from low to high abundance: spike-ins. The technical noise is assessed based on the amount of spike-ins used, the corresponding read counts obtained and their variation across cells. The variance in expression can then be decomposed into the biolgical and technical components.
+
+UMI-based assays do not (yet?) allow spike-ins. But one can still identify HVGs, that is genes with the highest biological component. Assuming that expression does not vary across cells for most genes, the total variance for these genes mainly reflects technical noise. The latter can thus be assessed by fitting a trend to the variance in expression. The fitted value will be the estimate of the technical component.
+
+Let’s fit a trend to the variance, using modelGeneVar().
+
+```{r}
+dec.sce <- modelGeneVar(sce)
+```
+
+Let’s plot variance against mean of expression (log scale) and the mean-dependent trend fitted to the variance:
+
+```{r}
+var.fit <- metadata(dec.sce)
+plot(var.fit$mean, var.fit$var, xlab="Mean of log-expression", ylab="Variance of log-expression")
+curve(var.fit$trend(x), col="dodgerblue", add=TRUE, lwd=2)
+```
+
+## Selecting highly variable genes 
+Once we have quantified the per-gene variation, the next step is to select the subset of HVGs to use in downstream analyses. A larger subset will reduce the risk of discarding interesting biological signal by retaining more potentially relevant genes, at the cost of increasing noise from irrelevant genes that might obscure said signal. It is difficult to determine the optimal trade-off for any given application as noise in one context may be useful signal in another. Commonly applied strategies are: 
+
+* take top X genes with largest (biological) variation
+
+Top 1000 genes: `getTopHVGs(dec.sce, n=1000)` 
+
+Top 10% genes: `getTopHVGs(dec.sce, prop=0.1)`
+
+* based on significance 
+
+`getTopHVGs(dec.sce, fdr.threshold = 0.05)`
+
+* keeping all genes above the trend 
+
+`getTopHVGs(dec.sce, var.threshold = 0)`
+
+* selecting a priori genes of interest 
+
+
+In our example, we will define ‘HVGs’ as top 10% of genes with the highest biological components. This is a fairly arbitrary choise. The common practise is to pick an arbitrary threshold (either based on number of proportion) and proceed with the rest of the analysis, with the intention of testing other choices later, rather than spending much time worrying about obtaining the “optimal” value.
+
+```{r}
+hvgs <- getTopHVGs(dec.sce, prop=0.1)
+length(hvgs)
+```
+
+HVGs may be driven by outlier cells. So let's plot the distribution of expression values for the genes with the largest biological components.
+
+First, get gene names to replace ensembl IDs on plot. 
+
+```{r HVG_extName}
+# the count matrix rows are named with ensembl gene IDs. Let's label gene with their name instead:
+# row indices of genes in rowData(sce)
+o <- order(dec.sce$bio, decreasing=TRUE)
+chosen.genes.index <- o[1:20]
+tmpInd <- which(rowData(sce)$ID %in% rownames(dec.sce)[chosen.genes.index])
+# check:
+rowData(sce)[tmpInd,c("ID","Symbol")]
+# store names:
+tmpName <- rowData(sce)[tmpInd,"Symbol"]
+# the gene name may not be known, so keep the ensembl gene ID in that case:
+tmpName[tmpName==""] <- rowData(sce)[tmpInd,"ID"][tmpName==""]
+tmpName[is.na(tmpName)] <- rowData(sce)[tmpInd,"ID"][is.na(tmpName)]
+rm(tmpInd)
+```
+
+Now show a violin plot for each gene, using plotExpression() and label genes with their name:
+
+```{r plot_count_HVGtop20}
+g <- plotExpression(sce, rownames(dec.sce)[chosen.genes.index], 
+    point_alpha=0.05, jitter="jitter") 
+g <- g + scale_x_discrete(breaks=rownames(dec.sce)[chosen.genes.index],
+        labels=tmpName)
+g
+rm(tmpName)
+```
+# Dimensionality Reduction 
+Many scRNA-seq analysis procedures involve comparing cells based on their expression values across multiple genes. For example, clustering aims to identify cells with similar transcriptomic profiles by computing Euclidean distances across genes. In these applications, each individual gene represents a dimension of the data. More intuitively, if we had a scRNA-seq data set with two genes, we could make a two-dimensional plot where each axis represents the expression of one gene and each point in the plot represents a cell. This concept can be extended to data sets with thousands of genes where each cell’s expression profile defines its location in the high-dimensional expression space.
+
+As the name suggests, dimensionality reduction aims to reduce the number of separate dimensions in the data. This is possible because different genes are correlated if they are affected by the same biological process. Thus, we do not need to store separate information for individual genes, but can instead compress multiple features into a single dimension, e.g., an “eigengene” (Langfelder and Horvath 2007). This reduces computational work in downstream analyses like clustering, as calculations only need to be performed for a few dimensions rather than thousands of genes; reduces noise by averaging across multiple genes to obtain a more precise representation of the patterns in the data; and enables effective plotting of the data, for those of us who are not capable of visualizing more than 3 dimensions.
+
+## Principal Component Analysis
+
+In a single cell RNA-seq (scRNASeq) data set, each cell is described by the expression level of thoushands of genes.
+
+The total number of genes measured is referred to as dimensionality. Each gene measured is one dimension in the space characterising the data set. Many genes will little vary across cells and thus be uninformative when comparing cells. Also, because some genes will have correlated expression patterns, some information is redundant. Moreover, we can represent data in three dimensions, not more. So reducing the number of useful dimensions is necessary.
+
+The data set: a matrix with one row per sample and one variable per column. Here samples are cells and each variable is the normalised read count for a given gene.
+
+The space: each cell is associated to a point in a multi-dimensional space where each gene is a dimension.
+
+The aim: to find a new set of variables defining a space with fewer dimensions while losing as little information as possible.
+
+Out of a set of variables (read counts), PCA defines new variables called Principal Components (PCs) that best capture the variability observed amongst samples (cells).
+
+The number of variables does not change. Only the fraction of variance captured by each variable differs.
+The first PC explains the highest proportion of variance possible (bound by prperties of PCA).
+The second PC explains the highest proportion of variance not explained by the first PC.
+PCs each explain a decreasing amount of variance not explained by the previous ones.
+Each PC is a dimension in the new space.
+
+The total amount of variance explained by the first few PCs is usually such that excluding remaining PCs, ie dimensions, loses little information. The stronger the correlation between the initial variables, the stronger the reduction in dimensionality. PCs to keep can be chosen as those capturing at least as much as the average variance per initial variable or using a scree plot, see below.
+
+PCs are linear combinations of the initial variables. PCs represent the same amount of information as the initial set and enable its restoration. The data is not altered. We only look at it in a different way.
+
+About the mapping function from the old to the new space:
+
+- it is linear
+- it is inverse, to restore the original space
+- it relies on orthogonal PCs so that the total variance remains the same.
+
+Two transformations of the data are necessary:
+
+- center the data so that the sample mean for each column is 0 so the covariance matrix of the intial matrix takes a simple form
+- scale variance to 1, ie standardize, to avoid PCA loading on variables with large variance.
+
+## PCA
+
+Perform PCA, keep outcome in same object.
+`runPCA` calculates 50 PCs by default, you can change this number by specifying `ncomponents` option.
+
+```{r sce_pca_comp}
+sce <- runPCA(sce,subset_row=hvgs)
+sce
+```
+
+Percentage of variance explained by successive PCs
+```{r}
+percent.var <- attr(reducedDim(sce), "percentVar")
+plot(percent.var, xlab="PC", ylab="Variance explained (%)")
+```
+
+Display cells on a plot for the first 2 PCs, colouring by 'Sample' and setting size to match 'total_features'.
+
+The proximity of cells reflects the similarity of their expression profiles.
+
+```{r sce_pca_plotColorBySample, include=TRUE}
+g <- plotPCA(sce,colour_by = "SampleName")         
+g
+```
+
+One can also split the plot by sample.
+
+```{r sce_pca_plotColorBySample_facetBySample}
+g +  facet_wrap(~ sce$SampleName)
+```
+
+Or plot several PCs at once, using plotReducedDim():
+
+```{r sce_pca_plotReducedDim}
+plotReducedDim(sce, dimred="PCA", ncomponents=3, colour_by = "SampleName")
+```
+
+## PCA Diagnostics 
+There is a large number of potential confounders, artifacts and biases in scRNA-seq data. One of the main challenges in analysing scRNA-seq data stems from the fact that it is difficult to carry out a true technical replication to distinguish biological and technical variability. Here we will continue to explore how experimental artifacts can be identified and removed. 
+
+The plot below shows, for each of the first 10 PCs, the variance explained by the ten variables in colData(sce) that are most strongly associated with the PCs. 
+```{r}
+colData(sce)$SampleGroup <- factor(colData(sce)$SampleGroup)
+
+explanPc <- getExplanatoryPCs(sce,
+    variables = c(
+        "sum",
+        "detected",
+        "SampleGroup",
+        "SampleName",
+        "subsets_Mito_percent"
+    )
+)
+
+plotExplanatoryPCs(explanPc/100) 
+```
+
+We can see that PC1 can be explained mostly by `Sample.Name`, `source_name`, and Mitochondrial expression.  
+
+```{r}
+plotExplanatoryVariables(
+    sce,
+    variables = c(
+        "sum",
+        "detected",
+        "SampleGroup",
+        "SampleName",
+        "subsets_Mito_percent"
+    )
+)
+```
+
+We can also compute the marginal R2 for each variable when fitting a linear model regressing expression values for each gene against just that variable, and display a density plot of the gene-wise marginal R2 values for the variables.
+
+
+This analysis indicates that individual and substype have the highest explanatory power for many genes, and we don't see technical covariates having high correlations. If that were the case, we might need to repeat the normalization step while conditioning out for these covariates, or we would include them in downstream analysis. 
+
+
+## Chosing the number of PCs 
+How many of the top PCs should we retain for downstream analyses? The choice of the number of PCs is a decision that is analogous to the choice of the number of HVGs to use. Using more PCs will retain more biological signal at the cost of including more noise that might mask said signal. Much like the choice of the number of HVGs, it is hard to determine whether an “optimal” choice exists for the number of PCs. Even if we put aside the technical variation that is almost always uninteresting, there is no straightforward way to automatically determine which aspects of biological variation are relevant; one analyst’s biological signal may be irrelevant noise to another analyst with a different scientific question.
+
+Most practitioners will simply set the number of PCs to a “reasonable” but arbitrary value, typically ranging from 10 to 50. This is often satisfactory as the later PCs explain so little variance that their inclusion or omission has no major effect. For example, in our dataset, few PCs explain more than 1% of the variance in the entire dataset. 
+
+```{r}
+table(percent.var>1)
+```
+
+Most commonly used strategies include: 
+* selecting top X PCs (with X typically ranging from 10 to 50)
+
+* using the elbow point in the scree plot 
+```{r}
+percent.var <- attr(reducedDim(sce), "percentVar")
+chosen.elbow <- findElbowPoint(percent.var)
+chosen.elbow
+```
+
+```{r}
+plot(percent.var, xlab="PC", ylab="Variance explained (%)")
+abline(v=chosen.elbow, col="red")
+```
+
+* using technical noise 
+Here we aim to find PCs linked to biological variation. The assumption is that the biology drives most of the variance hence should be captured by the first PCs, while technical noise affects each gene independently, hence is captured by later PCs. Compute the sum of the technical component across genes used in the PCA, use it as the amount of variance not related to biology and that we should therefore remove. Later PCs are excluded until the amount of variance they account for matches that corresponding to the technical component.
+
+```{r}
+var.fit <- metadata(dec.sce)
+sce <- denoisePCA(sce, technical=var.fit$trend, assay.type="logcounts")
+ncol(reducedDim(sce))
+```
+
+* using permutation (permute a subset of the data, rerun PCA, construct a null distribution of feature scores, and repeat)
+
+
+
+## t-SNE: t-Distributed Stochastic Neighbor Embedding
+
+The Stochastic Neighbor Embedding (SNE) approach address two shortcomings of PCA that captures the global covariance structure with a linear combination of initial variables: by preserving the local structure allowing for non-linear projections. It uses two distributions of the pairwise similarities between data points: in the input data set and in the low-dimensional space.
+
+SNE aims at preserving neighbourhoods. For each points, it computes probabilities of chosing each other point as its neighbour based on a Normal distribution depending on 1) the distance matrix and 2) the size of the neighbourhood (perplexity). SNE aims at finding a low-dimension space (eg 2D-plane) such that the similarity matrix deriving from it is as similar as possible as that from the high-dimension space. To address the fact that in low dimension, points are brought together, the similarity matrix in the low-dimension is allowed to follow a t-distribution.
+
+Two characteristics matter:
+
+- perplexity, to indicate the relative importance of the local and global patterns in structure of the data set, usually use a value of 50,
+- stochasticity; running the analysis will produce a different map every time, unless the seed is set.
+
+See [misread-tsne](https://distill.pub/2016/misread-tsne/).
+
+### Perplexity
+
+Compute t-SNE with default perplexity, ie 50.
+
+```{r runTSNE_perp50, cache=TRUE}
+# runTSNE default perpexity if min(50, floor(ncol(object)/5))
+sce <- runTSNE(sce, dimred="PCA",perplexity=50, rand_seed=123)
+```
+
+Plot t-SNE:
+
+```{r plotTSNE_perp50}
+tsne50<-plotTSNE(sce, colour_by="SampleName",size_by="sum") + ggtitle("Perplexity = 50")
+tsne50
+```
+
+<!-- Split by sample type: -->
+
+```{r plotTSNE_perp50_facetBySample, fig.width=12, fig.height=12, eval=FALSE, include=FALSE}
+tsne50 + facet_wrap(~ sce$SampleGroup)
+```
+
+Compute t-SNE for several perplexity values: 
+```{r runTSNE_perpRange, cache=TRUE }
+tsne5.run <- runTSNE(sce, dimred="PCA", perplexity=5, rand_seed=123)
+tsne5 <- plotTSNE(tsne5.run, colour_by="SampleName") + ggtitle("Perplexity = 5")
+
+tsne500.run <- runTSNE(sce, dimred="PCA", perplexity=500, rand_seed=123)
+tsne500 <- plotTSNE(tsne500.run, colour_by="SampleName") + ggtitle("Perplexity = 500")
+```
+
+Low perplexities will favor resolution of finer structure, possibly to the point that the visualization is compromised by random noise. Thus, it is advisable to test different perplexity values to ensure that the choice of perplexity does not drive the interpretation of the plot.
+
+```{r plotTSNE_perpRange, fig.width=6, fig.height=6}
+tsne5
+tsne50
+tsne500
+```
+
+## UMAP
+Another neighbour graph method. Similar to t-SNE, but that is determistic, faster and claims to preserve both local and global structures.
+
+### Compute UMAP.
+```{r runUMAP}
+set.seed(123)
+sce <- runUMAP(sce, dimred="PCA")
+```
+
+### Plot UMAP
+
+Compared to t-SNE, the UMAP visualization tends to have more compact visual clusters with more empty space between them. It also attempts to preserve more of the global structure than t -SNE. From a practical perspective, UMAP is much faster than t-SNE, which may be an important consideration for large datasets. (Nonetheless, we have still run UMAP on the top PCs here for consistency.) UMAP also involves a series of randomization steps so setting the seed is critical.
+
+Like t-SNE, UMAP has its own suite of hyperparameters that affect the visualization. Of these, the number of neighbors (n_neighbors) and the minimum distance between embedded points (min_dist) have the greatest effect on the granularity of the output. If these values are too low, random noise will be incorrectly treated as high-resolution structure, while values that are too high will discard fine structure altogether in favor of obtaining an accurate overview of the entire dataset. Again, it is a good idea to test a range of values for these parameters to ensure that they do not compromise any conclusions drawn from a UMAP plot. 
+
+```{r plotUMAP}
+sce.umap <- plotUMAP(sce, colour_by="SampleName", size_by="sum") + ggtitle("UMAP")
+sce.umap
+```
+
+<!-- Split by sample: -->
+
+```{r plotUMAP_facetBySample, eval=FALSE, include=FALSE}
+sce.umap + facet_wrap(~ sce$SampleGroup)
+```
+
+## Save SCE object: 
+
+```{r}
+# save sce object to which we have added dimensionality reduction slots:
+#saveRDS(sce, tmpFn)
+```
+
+## Session information
+
+```{r}
+sessionInfo()
+```
+
