@@ -1,0 +1,79 @@
+# Cluster marker genes
+
+```{r library_clusterMarkerGenes, warning=FALSE}
+library(ggplot2)
+library(scater)
+library(scran)
+library(dplyr)
+library(RColorBrewer)
+library(pheatmap)
+library(glue)
+```
+
+# Cluster marker genes {#clusterMarkerGenesTop}
+
+<img src="../../Images/Andrews2017_Fig1.png" style="margin:auto; display:block" />
+
+Source: we will follow the [OSCA chapter on marker detection](https://bioconductor.org/books/release/OSCA/marker-detection.html) (with some of its text copied here with little modification). See also the Hemberg group chapter on [differential analysis section](https://scrnaseq-course.cog.sanger.ac.uk/website/biological-analysis.html#dechapter).
+
+To interpret our clustering results, we identify the genes that drive separation between clusters. These marker genes allow us to assign biological meaning to each cluster based on their functional annotation. In the most obvious case, the marker genes for each cluster are a priori associated with particular cell types, allowing us to treat the clustering as a proxy for cell type identity. The same principle can be applied to discover more subtle differences between clusters (e.g., changes in activation or differentiation state) based on the behavior of genes in the affected pathways.
+
+Identification of marker genes is usually based around the retrospective detection of differential expression between clusters. Genes that are more strongly DE are more likely to have caused separate clustering of cells in the first place. Several different statistical tests are available to quantify the differences in expression profiles, and different approaches can be used to consolidate test results into a single ranking of genes for each cluster.
+
+## Learning objectives
+
+* identify genes that differentially expressed between clusters,
+* exclusively or not,
+* using different methods that test:
+  * the mean expression level,
+  * the whole distribution,
+  * or the proportion of cells expressing the gene
+* compile a summary table.
+
+## Load data
+
+We will load the R file keeping the SCE (SingleCellExperiment) object with the outcome of the clustering performed after feature selection and dimensionality reduction of the normalised counts for 500 cells per sample.
+
+```{r}
+uncorrected <- readRDS("../CourseMaterials/Robjects/DataIntergration_uncorrected.rds")
+mnn.out <- readRDS("../CourseMaterials/Robjects/DataIntergration_mnn.out.rds")
+
+mnn.out <- runUMAP(mnn.out, dimred="corrected")
+
+# copy clustering output to uncorrected SCE
+sce <- uncorrected
+x <- colData(mnn.out)[,c("Barcode","label")] %>% data.frame()
+colData(sce) <- colData(uncorrected) %>%
+  data.frame() %>%
+  dplyr::left_join(x, by="Barcode") %>%
+  DataFrame
+colData(sce)$cluster <- colData(sce)$label.y
+sce$clusterStg <- factor(paste0("c", sce$cluster),
+			 levels = paste0("c", levels(sce$cluster)))
+#rm(uncorrected)
+```
+
+Number of cells: `r ncol(sce)`.
+
+Number of genes: `r nrow(sce)`.
+
+## Detecting genes differentially expressed between clusters
+
+The TSNE plots below show the structure observed with and without data set integration
+Cells colored by cluster:
+
+```{r, fig.height=0.5*figSize, fig.width=figSize}
+tsney <- plotTSNE(mnn.out, colour_by="label") 
+tsnex <- plotTSNE(sce, colour_by="clusterStg") 
+gridExtra::grid.arrange(tsney, tsnex, ncol=2)
+```
+
+Cells colored by sample name:
+
+```{r, fig.height=0.5*figSize, fig.width=figSize}
+p1 <- plotTSNE(mnn.out, colour_by="Sample.Name") 
+p2 <- plotTSNE(sce, colour_by="Sample.Name") 
+gridExtra::grid.arrange(p1, p2, ncol=2)
+```
+
+
