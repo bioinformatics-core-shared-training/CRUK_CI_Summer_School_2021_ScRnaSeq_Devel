@@ -1,6 +1,6 @@
 ---
 title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
-subtitle: 'cellranger'
+subtitle: 'Alignment and feature counting with Cell Ranger'
 
 author: "Stephane Ballereau & Ashley Sawle"
 output:
@@ -166,7 +166,7 @@ cellranger count --id=SRR9264343 \
                  --localmem=64
 ```
 
-### Cell Ranger outputs
+## Cell Ranger outputs
 
 Cell Ranger will create a single folder for the sample names as per the `--id`
 option in the command. In the top level of the directory is a directory called
@@ -202,10 +202,15 @@ The two count matrix directories each contain 3 files:
   correspond to the rows of the count matrix.
 * **matrix.mtx.gz** - the count of unique UMIs for each gene in each cell.
 
+The count matrix directories and their corresponding HDF5 files contain the same
+information, they are just alternative formats for use depending on the tools 
+that are used for analysis. In this course we will be loading the contents of 
+the count matrix directories in to R.
+
 The filtered count matrix only contains droplets that have been called as cells
 by CellRanger.  
 
-#### The summary report
+### The summary report
 
 The CellRanger summary report - `web_summary.html` - is a very useful first 
 port of call for assessing the quality of the data. An example is linked
@@ -215,14 +220,14 @@ The first page contains various QC metrics about sequencing quality, mapping
 quality and cell calling. The second page of the report provides some basic
 analysis of droplets that Cell Ranger has identified as potentially containing
 cells, including some basic clustering and gene expression analysis. This page
-is interactive, allowing you to some very basic data exploration.
+is interactive, allowing you to some very basic odata exploration.
 
 The report itself contains brief explanations of the contents of each section.
 These can be accessed by clicking the question mark icon in the header of the
 section. A more comprehensive explanation of the various components of the 
 report can be found on [the 10x website](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/output/summary).
 
-#### cloupe file and the Loupe browser
+### The cloupe file and the Loupe browser
 
 The `cloupe.cloupe` file that Cell Ranger generates can be loaded using the 
 [Loupe Browser application](https://support.10xgenomics.com/single-cell-gene-expression/software/visualization/latest/what-is-loupe-cell-browser) provided by 10x. This provides an interactive
@@ -230,7 +235,7 @@ visualization and analysis platform that allows you to extensively explore your
 data with a point and click interface.
 
 The browser will allow you for example to find cells of interest through
-filtering and clustering tools, identify genes whose expression characterises
+filtering and clustering tools, identify genes whose expression characterizes
 particular clusters of cells, or identify the type of cells in different
 clusters based on gene expression. While the browser is an excellent tool for
 data exploration and identification of potential avenues of analysis, it should 
@@ -238,6 +243,8 @@ not be used as a substitute for proper bioinformatic analysis. In particular,
 it should be remembered that Cell Ranger has not performed and QC on the 
 contents of the droplets it has called as cells - in the next section of the
 course we will perform additional QC to eliminate poor quality cells.
+
+### The count matrices
 
 #### What are the counts?
 
@@ -277,10 +284,17 @@ performs this filtering in two steps.
   profile that differs significantly from the background profile is called as a
   cell.
 
+A detailed description of the Cell Calling algorithm, along with explanations
+of the other algorithms used in the alignemt and countings steps, can be found
+on [the 10x Cell Ranger pages](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/algorithms/overview)
+
 The plot below shows a "barcode rank plot". This is taken from the Cell Ranger
 `web_summary.html` report.
 
 ![](Images/BarcodeRankPlot.png){width=50%}
 This plot shows the UMI counts for all droplets, the droplets have been ranked
 by UMI count and coloured according to whether they have been called as cells or
-not. 
+not. The light blue region, indicates a region where some droplets have been 
+called as cells, but other have not - depending on the outcome of the RNA 
+profiling step of the algorithm.
+
