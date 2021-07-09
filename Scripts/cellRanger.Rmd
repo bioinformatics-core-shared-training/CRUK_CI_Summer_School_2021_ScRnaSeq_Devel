@@ -12,17 +12,18 @@ output:
 ---
 
 ```{r setup, include = FALSE}
-knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=FALSE)
 knitr::opts_chunk$set(echo=FALSE)
 ```
 
+<!--
 # Alignment and feature counting {#AliFeatCountTop}
+-->
 
-## Introduction
+<!-- # --># Introduction
 
 The first step in the analysis of single cell RNAseq data is to align the
-sequences reads against a genomic reference and then use a transcriptome
-annotation to generate read counts for each features of interest. Typically
+sequenced reads against a genomic reference and then use a transcriptome
+annotation to generate read counts for each feature of interest. Typically
 for scRNAseq the features of interest are genes.
 
 There are a variety of tools for doing this and your choice will depend in part
@@ -36,18 +37,23 @@ counting, but will also:
   cells   
 * Generate a very useful report in html format, which will provide some QC
   metrics and an initial look at the data   
-* Generate a "cloupe" file, which can be opened using the [10x loupe
-  browser](https://support.10xgenomics.com/single-cell-gene-expression/software/visualization/latest/what-is-loupe-cell-browser)
-  software to further explore the data.   
+* Generate a "cloupe" file, which can be opened using the [10x Loupe
+  Browser](https://support.10xgenomics.com/single-cell-gene-expression/software/visualization/latest/what-is-loupe-cell-browser)
+  software to further explore the data.  
+  
+Cell Ranger is computationally very intensive, you will not be able to run it on
+a laptop or standard desktop computer. You will need access to, for example, a
+high power computing cluster, a server or other cloud based computational
+resource with sufficient power - talk to your local IT support.
 
 Alternative methods include:
 
 * **[STAR solo](https://github.com/alexdobin/STAR/blob/master/docs/STARsolo.md)** -
   this tool is built into the general purpose STAR aligner (Cell Ranger actually
   uses STAR under the hood). This will generate outputs very similar to
-  CellRanger minus the cloupe file and the QC report. The advantage over
-  CellRanger is that it is much more "lightweight" and will run with lower
-  memory requirements in a shorter time.
+  Cell Ranger minus the cloupe file and the QC report. The advantage over
+  Cell Ranger is that it is much less computationally intenstive and will run
+  with lower memory requirements in a shorter time.
 * **[Alevin](https://salmon.readthedocs.io/en/latest/alevin.html)** - This tool
   is based on the popular Salmon tool for bulk RNAseq feature counting. Alevin
   supports both 10x-Chromium and Drop-seq derived data.
@@ -57,26 +63,26 @@ derived data, we will use Cell Ranger. As detailed instructions are available
 on the [Cell Ranger pages](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger) of the 10x website, this chapter will not be
 comprehensive in terms of all options, but should provide a brief overview.
 
-## 10X Cell Ranger pipeline in brief
+<!-- # --># 10x Cell Ranger pipeline in brief
 
-The Cell Ranger tools actually incorporates a number of different analysis
-pipelines for handling different components of the single cell RNAseq analysis.
-In this chapter we will be using the `count` tool, later in the course you will
-encounter the `aggr` (aggregate) tool, which can be used to merge mutliple
-samples into a single experiment-level data set. 
+Cell Ranger incorporates a number of tools for handling different components of
+the single cell RNAseq analysis. In this chapter we will be looking at the
+`count` tool, which is used to align reads, quantify gene expression and call
+cells. Later in the course you will encounter the `aggr` (aggregate) tool, which
+can be used to merge multiple samples into a single experiment-level data set.
 
 In addition to the analysis tools, Cell Ranger also includes a tools to
 generate a custom Cell Ranger reference from genomic and transcriptomic
 references.
 
-### Installing Cell Ranger
+<!-- # -->## Installing Cell Ranger
 
 Full installation instruction can be found on the 
 [10x website](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/installation).
 
-### Cell Ranger references
+<!-- # -->## Cell Ranger references
 
-The Cell Ranger software, like other aligners, requires the information about
+Cell Ranger, like other aligners, requires the information about
 the genome and transcriptome of interest to be provided in a specific format.
 If you are working with the standard genome/transcriptome of human or mouse
 then you can download prebuilt references from the [10x
@@ -84,30 +90,30 @@ website](https://support.10xgenomics.com/single-cell-gene-expression/software/do
 (there is even a combined genome reference, which is useful for PDX based
 experiments).
 
-If you require a reference for the genome of another species, or wish to add 
-custom transcripts to the gene annotation (e.g. fusion genes), then you will 
-need to build your own index. We will not go into detail here about this, but
-it is a relatively straightforward process and you can find comprehensive
-instructions
+If you require a reference for the genome of another species, or wish to add
+custom transcripts to the gene annotation (e.g. fusion genes), then you will
+need to build your own index using the Cell Ranger `mkref` tool. We will not go
+into detail here about this, but it is a relatively straightforward process and
+you can find comprehensive instructions
 [here](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/references).
 
-### Cell Ranger count
+<!-- # -->## Cell Ranger `count`
 
-Full details can be found on the 
+Full details for running the `count` can be found on the 
 [10x website](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/using/count).
 
-#### Preparing the raw fastq files
+<!-- # -->### Preparing the raw fastq files
 
-To run Cell Ranger count the fastq files for samples to be processed should be
-placed in a single directory. Cell Ranger will be run separately on each file,
-you will need to provide the software with the index (e.g. SIGAA6) of the sample
+To run Cell Ranger `count` the fastq files for samples to be processed should be
+placed in a single directory. Cell Ranger will be run separately on each sample
+You will need to provide the software with the sample name (e.g. SRR9264343) of the sample
 to be processed. Cell Ranger expects the file names of the fastq files to follow
 a specific convention so that it can correctly identify the files for the
 specific sample. If the files names of your fastqs do not match this convention
 you will need to modify them.
 
-The convention is the default convention used by `bcl2fastq` which processes
-the raw sequencing data into fastq format:
+The convention is the default convention used by `bcl2fastq` (the tool that
+converts the raw sequencing data in `bcl` format into `fastq` files):
 
 ```
 <SampleName>_S<SampleNumber>_L00<Lane>_<Read>_001.fastq.gz
@@ -122,11 +128,11 @@ the raw sequencing data into fastq format:
 * **\<Lane\>** - The lane number. If your sequencing was run across mutliple
   lanes, then you may have multiple sets of fastqs for a single sample with
   different lane numbers.
-* **\<Read\>** - The read. **R1** for Read 1, **R2** for Read 2, and index
+* **\<Read\>** - The read type: **R1** for Read 1, **R2** for Read 2, and index
   reads are **I1** and **I2**.
 * **001**  - The last segment is always 001.
 
-e.g. for a single samples in the Caron data set we have:
+e.g. for a single sample in the Caron data set we have:
 
 ```
     SRR9264343_S0_L001_I1_001.fastq.gz
@@ -134,28 +140,28 @@ e.g. for a single samples in the Caron data set we have:
     SRR9264343_S0_L001_R2_001.fastq.gz
 ```
 
-#### Running `cellranger count`
+<!-- # -->### Running `cellranger count`
 
 The minimum information require to run `cellranger count` is:
 
-* **--id** - A sample ID. This is used for naming the outputs   
-* **--transcriptome** - the directory containing the Cell Ranger reference   
-* **--fastqs** - the directory containing the fastq files
+* **\-\-id** - A sample ID. This is used for naming the outputs   
+* **\-\-transcriptome** - the directory containing the Cell Ranger reference   
+* **\-\-fastqs** - the directory containing the fastq files
 
-This will process all fastq files in the `fastqs` directory into a single
+This will process all fastq files in the `--fastqs` directory into a single
 sample. If you have multiple samples in a single directory then you need to
 add:
 
-* **--sample** - the SampleName from the fastq files as above.
+* **\-\-sample** - the SampleName from the fastq files as above.
 
 In addition, Cell Ranger is very computationally intensive, you will usually
 be wanting to run it on a high performance cluster or server, and it is 
 advisable to set limits to the resources it will use:
 
-* **--localcores** - the number of processors Cell Ranger should use   
-* **--localmem** - the amount of memory, in Gigabytes, Cell Ranger should use.
+* **\-\-localcores** - the number of processors Cell Ranger should use   
+* **\-\-localmem** - the amount of memory, in Gigabytes, Cell Ranger should use.
 
-e.g:
+A complete command for processing on of the Caron samples might be:
 
 ```
 cellranger count --id=SRR9264343 \
@@ -166,20 +172,25 @@ cellranger count --id=SRR9264343 \
                  --localmem=64
 ```
 
-## Cell Ranger outputs
+<!-- # --># Cell Ranger outputs
 
-Cell Ranger will create a single folder for the sample names as per the `--id`
-option in the command. In the top level of the directory is a directory called
-`outs`, this contains the results of the analysis pipeline. There are also many
-intermediate and log files/directories that will not be of immediate interest.
+Cell Ranger will create a single results folder for each sample names. Each
+folder will be named according to the `--id` option in the command. In the top
+level of the directory is a sub-directory called `outs`, this contains the
+results of the analysis pipeline. There are also many intermediate and log
+files/directories that will not be of immediate interest.
 
 The contents of the sample directory will look like this:
 
-![](Images/CellRangerOutput.png){width=50%}
+```{r outputDir, fig.align='center', out.width="50%"}
+knitr::include_graphics("Images/CellRangerOutput.png")
+```
 
 The contents of the `outs` directory are:
 
-![](Images/CellRangerOutputOuts.png){width=50%}
+```{r outputDirOuts, fig.align='center', out.width="50%"}
+knitr::include_graphics("Images/CellRangerOutputOuts.png")
+```
 
 * **analysis** - The results of clustering and differential expression analysis
   on the clusters. These are used in the *web_summary.html* report.
@@ -205,36 +216,40 @@ The two count matrix directories each contain 3 files:
 The count matrix directories and their corresponding HDF5 files contain the same
 information, they are just alternative formats for use depending on the tools 
 that are used for analysis. In this course we will be loading the contents of 
-the count matrix directories in to R.
+the count matrix directories into R.
 
 The filtered count matrix only contains droplets that have been called as cells
-by CellRanger.  
+by Cell Ranger.  
 
-### The summary report
+<!-- # -->## The summary report
 
-The CellRanger summary report - `web_summary.html` - is a very useful first 
+The Cell Ranger summary report - `web_summary.html` - is a very useful first 
 port of call for assessing the quality of the data. An example is linked
-[her](Slides/web_summary.html).
+[here](web_summary.html).
 
-The first page contains various QC metrics about sequencing quality, mapping
-quality and cell calling. The second page of the report provides some basic
+The first tab, **Summary**, contains various QC metrics about sequencing quality, mapping
+quality and cell calling. The second tab, **Analysis**, provides some basic
 analysis of droplets that Cell Ranger has identified as potentially containing
-cells, including some basic clustering and gene expression analysis. This page
-is interactive, allowing you to some very basic odata exploration.
+cells, including some clustering and gene expression analysis. This report
+is interactive, allowing you to some very basic data exploration.
 
 The report itself contains brief explanations of the contents of each section.
 These can be accessed by clicking the question mark icon in the header of the
 section. A more comprehensive explanation of the various components of the 
 report can be found on [the 10x website](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/output/summary).
 
-### The cloupe file and the Loupe browser
+<!-- # -->## The cloupe file and the Loupe browser
 
 The `cloupe.cloupe` file that Cell Ranger generates can be loaded using the 
 [Loupe Browser application](https://support.10xgenomics.com/single-cell-gene-expression/software/visualization/latest/what-is-loupe-cell-browser) provided by 10x. This provides an interactive
 visualization and analysis platform that allows you to extensively explore your
 data with a point and click interface.
 
-The browser will allow you for example to find cells of interest through
+```{r LoupeBrowser, fig.align='center', out.width="75%"}
+knitr::include_graphics("Images/LoupeBrowser.png")
+```
+
+The browser will allow you, for example, to find cells of interest through
 filtering and clustering tools, identify genes whose expression characterizes
 particular clusters of cells, or identify the type of cells in different
 clusters based on gene expression. While the browser is an excellent tool for
@@ -244,9 +259,9 @@ it should be remembered that Cell Ranger has not performed and QC on the
 contents of the droplets it has called as cells - in the next section of the
 course we will perform additional QC to eliminate poor quality cells.
 
-### The count matrices
+<!-- # -->## The count matrices
 
-#### What are the counts?
+<!-- # -->### What are the counts?
 
 Remember that for each read we have a sample barcode, a cell barcode, and a
 UMI.  In addition we now have location on the genome and a corresponding gene
@@ -259,30 +274,31 @@ Thus we avoid counting PCR duplicate reads as these will have the same UMI. For
 this reason we more commonly talk about the "UMI count" rather than the "Read
 count"; the "Read count" could be higher than the "UMI count"
 
-#### Filtered vs. Raw matrices
+<!-- # -->### Filtered vs. Raw matrices
 
 Cell Ranger performs some analysis on the data to distinguish between droplets
-that contain good quality cells and empty droplets. The filtered counts matrices
-only contain data for droplets that CellRanger has determined to be cells. It 
-performs this filtering in two steps.
+that contain cells and empty droplets. The filtered counts matrices only contain
+data for droplets that Cell Ranger has determined to contain cells. It performs
+this filtering in two steps.
 
-1. UMI threshold based
-  By default Cell Ranger expects there to 3000 cells (you can change this in 
+1. UMI threshold based filtering:  
+  By default, Cell Ranger expects there to 3000 cells (you can change this in
   the arguments of the Cell Ranger command). Cell Ranger takes the top 3000
   droplets by UMI counts. It then takes the UMI count at the 99th percentile of
   this set of cells. It then divides this number of UMIs by 10 to determine a
-  hard UMI threshold above which all droplets are called as cells.
+  hard UMI threshold. All droplets with a UMI count above this threshold are
+  called as cells.
 
-2. RNA profile comparison with background
+2. Comparison of droplet RNA profile with background:  
   This algorithm is based on one initially developed in the `dropletUtils` R
   package. Cell Ranger selects all droplets with a UMI count of less than 100
-  (this will usually be 100's of thousands). This set of droplets is determined
-  to definitely not contain cells and as such any RNA detected is merely
-  background within the media (due to damages cells leaking RNA). A RNA profile
-  is derived for this background. The RNA profile of all droplets with more than
-  100 UMIs is then compared to this background profile. Any droplet with a
-  profile that differs significantly from the background profile is called as a
-  cell.
+  (this will usually be 100's of thousands). This set of droplets is assumed to
+  definitely not contain cells and as such any RNA detected is merely background
+  within the media (due to damaged cells leaking RNA). An RNA profile is derived
+  for this background. The RNA profile of all droplets with more than 100 UMIs
+  but less than the hard UMI threshold is then compared to this background
+  profile. Any droplet with a profile that differs significantly from the
+  background profile is called as a cell.
 
 A detailed description of the Cell Calling algorithm, along with explanations
 of the other algorithms used in the alignemt and countings steps, can be found
@@ -292,6 +308,7 @@ The plot below shows a "barcode rank plot". This is taken from the Cell Ranger
 `web_summary.html` report.
 
 ![](Images/BarcodeRankPlot.png){width=50%}
+
 This plot shows the UMI counts for all droplets, the droplets have been ranked
 by UMI count and coloured according to whether they have been called as cells or
 not. The light blue region, indicates a region where some droplets have been 
