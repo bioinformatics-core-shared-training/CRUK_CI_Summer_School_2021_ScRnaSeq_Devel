@@ -6,8 +6,8 @@ output:
   ioslides_presentation:
     widescreen: true
     smaller: true
-    logo: CRUK_CC_web.jpg
-    css: stylesheet.css
+    logo: Images/crukcc-transparent-small.png
+    css: css/stylesheet.css
 ---
 
 ```{r include=FALSE}
