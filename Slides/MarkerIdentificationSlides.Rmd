@@ -1,0 +1,186 @@
+---
+title: "Marker Gene Identification"
+author: "Zeynep Kalender-Atak"
+date: '26.07.2021'
+output:
+  ioslides_presentation:
+    widescreen: true
+    smaller: true
+    logo: Images/crukcc-transparent-small.png
+    css: css/stylesheet.css
+---
+## Single Cell RNAseq Analysis Workflow
+
+```{r echo=FALSE, out.width='80%', fig.align='center'}
+knitr::include_graphics('Images/workflow.svg')
+```
+
+## Learning Objectives
+Goals: 
+
+* identify genes that differentially expressed between clusters,
+
+* exclusively or not,
+
+* using different methods that test:
+
+  * the mean expression level,
+  
+  * the whole distribution,
+  
+  * or the proportion of cells expressing the gene
+  
+* compile a summary table.
+
+## Learning Objectives
+Challenges: 
+
+* Over-interpretation of the results
+
+* Combining different types of marker identification
+
+
+
+
+Recommendations:
+
+* Think of the results as hypotheses that need verification. 
+<!-- Inflated p-values can lead to over-interpretation of results (essentially each cell is used as a replicate).  -->
+
+* Identify all markers conserved between conditions for each cluster
+
+* Identify markers that are differentially expressed between specific clusters
+
+## Differential expression
+
+```{r echo=FALSE, out.width= "50%", out.extra='style="float:left; padding:20px"'}
+knitr::include_graphics('Images/tsne_clusters.png')
+```
+
+## Differential expression
+
+* Differential expression is comparative. Common comparisons include: 
+
+* pairwise cluster comparisons, 
+
+    + eg. cluster 1 vs cluster2, cluster 2 vs cluster 3 etc. 
+
+* for a given cluster finding 'marker genes' that are: 
+
+    + DE compared to all cells outside of the cluster 
+    + DE compared to at least one other cluster
+    + DE compared to each of the other clusters
+    + DE compare to “most” of the other clusters
+    + DE and up-regulated (up- regulated markers are somehow easier to interpret)
+    
+* cell-type comparisons (if cell type is known) (with and without clustering)
+
+## `findMarkers`
+```{r echo=FALSE, out.width='40%', fig.align='center'}
+knitr::include_graphics('Images/findmarkers.png')
+```
+
+
+## `findMarkers`
+```{r echo=FALSE, out.width='40%', fig.align='center'}
+knitr::include_graphics('Images/findmarkers.png')
+```
+
+```{r echo=FALSE, out.width='90%', fig.align='center'}
+knitr::include_graphics('Images/findmarkers_testType.png')
+```
+
+## Why special distributions? 
+
+```{r echo=FALSE, out.width= "45%", out.extra='style="float:left; padding:30px"'}
+knitr::include_graphics('Images/marker_gene_distributions.png')
+```
+
+
+
+high noise levels (technical and biological factors)
+
+low library sizes 
+
+low amoung of available mRNAs result in amplification biases and dropout events 
+
+3' bias, partial coverage, uneven depth 
+
+stochastic nature of transcription 
+
+multimodality in gene expression (presence of multiple possible cell states within a cell population)
+
+
+## Parametric vs Non-parametric tests 
+
+* The better model fits to the data, the better (more accurate) statistics 
+
+* When we cannot fit a model to our data, we resort to non-parametric models (e.g. Wilcoxon rank-sum test, Kruskal-Wallis, Kolmogorov-Smirnov test)
+
+* Non-parametric tests generally convert observed expression values to ranks
+
+* They test whether the distribution of ranks for one group are significantly different from the distribution of ranks for the other group
+
+* May fail in presence of large number of tied values, such as the case of dropouts (zeros) in scRNA-seq
+
+* If the conditions for a parametric test hold, then it will be typically more powerful that a non-parametric test
+
+## Gene-wise null hypothesis
+
+* Wilcoxon rank-sum test: "It is equally likely that a randomly selected cell from cluster 1 will have higher or lower expression of the gene than a randomly selected cell from cluster 2"
+
+* Binomial test: "Probability of being expressed is the same in cluster 1 and cluster 2"
+
+* t-test: "Mean expression of genes in cluster 1 and cluster 2 are the same"
+
+## Performance of different tests 
+```{r echo=FALSE, out.width= "40%", out.extra='style="float:left; padding:30px;  margin-top: -85px"'}
+knitr::include_graphics('Images/DE_performance.png')
+```
+
+Some highlights: 
+
+* t-test and Wilcoxon work well, given at least few dozens cells to compare
+
+* Bulk RNA-seq analysis methods do not generally perform worse than those specifically developed for scRNA-seq
+
+* Filtering out lowly expressed genes in quite important for good performance of bulk methods (edgeR, DEseq2)
+
+## So, what's really important? 
+
+* It’s important to understand what are we trying to compare, e.g. mean expressions, or probability of being expressed
+
+* It’s important to understand the data
+
+* It’s important to assess and validate the results
+
+## Things to think about 
+
+* Always go back to RNA assay (or similar) for doing differential expression.
+
+* Depending on the method you chose use: counts, normalised counts or lognormalized counts.
+
+* Normalization strategy has a big influence on the results in differential expression, size factors may help.
+
+    * e.g comparing celltype with few expressed genes vs a cell type with many genes.
+
+## Things to think about 
+
+* Do not forget to account for batch effect 
+
+    * You can use the `block` argument in `findMarkers` to model batch effect
+
+## Things to think about 
+
+* A lot of what you get will be noise. Take two random set of cells and run DE and you probably with have a few significant genes with most of the commonly used tests.
+
+## Practical Session 
+
+* "Always go back to RNA assay (or similar) for doing differential expression." 
+
+    * We will use normalized expression values (not corrected) for testing for differential expression between clusters 
+    
+* "Do not forget to account for batch effect"
+
+    * We will model the batch effect (XX) using the `block` command 
+
