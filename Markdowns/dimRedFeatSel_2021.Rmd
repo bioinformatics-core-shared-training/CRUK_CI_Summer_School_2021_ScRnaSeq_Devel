@@ -26,22 +26,10 @@ params:
 set.seed(123) # for reproducibility
 ```
 
-
-
-```{r Caron_variables_dimRedFeatSelec}
-projDir <- ".." # or /home/ubuntu/CourseMaterials/scRNAseq
-dirRel <- ".."
-outDirBit <- "CourseMaterials"
-setName <- tolower("Caron")
-setSuf <- "_5hCellPerSpl"
-```
-
 # Learning Objectives
 * 
 *
 *
-
-
 
 # Feature Selection 
 
@@ -381,10 +369,7 @@ sce.umap + facet_wrap(~ sce$SampleGroup)
 
 ```{r}
 # save sce object to which we have added dimensionality reduction slots:
-tmpFn <- str_glue("{projDir}/{outDirBit}/Robjects/{setName}_postDeconv{setSuf}_dimRed.Rds")
-#tmpFn
-saveRDS(sce, tmpFn)
-rm(tmpFn)
+saveRDS(sce, "../CourseMaterials/Robjects/caron_postDeconv_5hCellPerSpl_dimRed.Rds")
 ```
 
 ## Session information
