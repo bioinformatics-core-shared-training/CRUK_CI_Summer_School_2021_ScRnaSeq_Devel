@@ -370,7 +370,9 @@ sce.umap + facet_wrap(~ sce$SampleGroup)
 
 ```{r}
 # save sce object to which we have added dimensionality reduction slots:
-#saveRDS(sce, tmpFn)
+tmpFn <- str_glue("{projDir}/{outDirBit}/{setName}_postDeconv{setSuf}_dimRed.Rds")
+saveRDS(sce, tmpFn)
+rm(tmpFn)
 ```
 
 ## Session information
