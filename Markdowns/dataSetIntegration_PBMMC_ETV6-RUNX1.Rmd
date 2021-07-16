@@ -17,6 +17,21 @@ output:
 
 # Data integration - PBMMC and ETV6-RUNX samples
 
+```{r dsi_Caron.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
+library(knitr)
+cacheBool <- !TRUE
+
+# if X11 is not available, add:
+# 'dev="CairoPNG"' in chunk param above
+# options(bitmapType='cairo')
+# opts_chunk$set(dev="CairoPNG")
+# library(Cairo)
+
+options(bitmapType='cairo') # if X11 is not available
+opts_chunk$set(dev="CairoPNG") # if X11 is not available
+library(Cairo) # if X11 is not available
+```
+
 ## Learning Objectives
 
 - 
@@ -61,13 +76,61 @@ We will load the SCE R object with the normalised counts from after the dimmensi
 objects in a `large list` for ease of running the following steps but it is no different to running each sample seperately at this point. Each sample has been subset to 500 cells per sample for demonstration purposes.
 
 
-```{r load_PBMMC_ETV6-RUNX1}
+
+```{r loadSplit_PBMMC_ETV6-RUNX1}
+# dimRedForViz.Rmd writes _dimRed.Rds
+getwd()
+dir("..")
+sce <- readRDS("../CourseMaterials/Robjects/caron_postDeconv_5hCellPerSpl_dimRed.Rds")
+
+#split.sce <- split(sce, sample(LETTERS, nrow(sce), replace=TRUE))
+x <- subset(sce, , SampleName=="ETV6-RUNX1_1")
+sampleGroupLevels <- levels(factor(colData(sce)$SampleName))
+sampleGroupToGet <- grep("PBMMC|ETV6-RUNX1", sampleGroupLevels, value = TRUE)
+all.sce <- lapply(sampleGroupToGet, function(x){ subset(sce, , SampleName==x) })
+names(all.sce) <- sampleGroupToGet
+```
+
+
+```{r load_PBMMC_ETV6-RUNX1, eval=FALSE}
 all.sce <- readRDS("../RobjectsReadOnly/DataIntergration_all_sce.rds")
 all.sce
 ```
 
+```{r}
+# DEV
+# caron_postQc_5hCellPerSpl.Rds
+file.exists("../CourseMaterials/Robjects/caron_postQc_5hCellPerSpl.Rds")
+x <- readRDS("../CourseMaterials/Robjects//caron_postQc_5hCellPerSpl.Rds")
+x
+# dim: 28377 5500 
+
+# CourseMaterials/Robjects/caron_postDeconv_5hCellPerSpl.Rds
+getwd()
+dir("..")
+dir("../CourseMaterials/Robjects/")
+file.exists("../CourseMaterials/Robjects/caron_postDeconv_5hCellPerSpl.Rds")
+x <- readRDS("../CourseMaterials/Robjects//caron_postDeconv_5hCellPerSpl.Rds")
+x
+#dim: 17700 5500 
+
+# dimred:
+dir("..")
+file.exists("../RobjectsReadOnly/caron_sce_nz_postDeconv_5hCellPerSpl_dimRed.Rds")
+x <- readRDS("../RobjectsReadOnly/caron_sce_nz_postDeconv_5hCellPerSpl_dimRed.Rds")
+x
+
+# featSel
+tmpFn <- "/mnt/nas-data/bioinformatics/group_folders/baller01/20200511_FernandesM_ME_crukBiSs2020/AnaWiSce/AnaCourse1/Robjects/caron_sce_nz_postDeconv_5hCellPerSpl_featSel.Rds"
+file.exists(tmpFn)
+x <- readRDS(tmpFn)
+x
+```
+
 ```{r, sampleSheet, message=FALSE}
-sampleSheet <- read_tsv("sampleSheet_for_DI.tsv")
+# samplesheet not used ?
+#sampleSheet <- read_tsv("sampleSheet_for_DI.tsv")
+samplesheet <- read_tsv("../CourseMaterials/Data/sample_sheet.tsv")
 ```
 
 We then apply the standard workflow to each sample separately:
@@ -83,7 +146,7 @@ We then apply the standard workflow to each sample separately:
 all.sce <- lapply(all.sce, logNormCounts)
 
 #--- variance-modelling ---#
-# model varaince with modelGeneVar()
+# model variance with modelGeneVar()
 # find highly variable genes (HVGs) with getTopHVGs()
 all.dec <- lapply(all.sce, modelGeneVar)
 all.hvgs <- lapply(all.dec, getTopHVGs, prop=0.1)
@@ -121,7 +184,7 @@ To prepare for the batch correction:
 ```{r prep_universe_PBMMC_ETV6-RUNX1}
 allNames <- unlist(lapply(all.sce, function(x){rownames(x)}))
 allNamesNb <- table(allNames)
-universe <- names(allNamesNb)[allNamesNb==7]
+universe <- names(allNamesNb)[allNamesNb==7] # where 7 is number of samples, or length(sampleGroupToGet)
 ```
 
 * The size of this common “universe” of features here is the number of features shared by all 7 samples is: `r length(universe)`.
@@ -137,14 +200,121 @@ uni.dec <- lapply(all.dec, function(x){x[universe,]})
 
 ```{r multiBatchNorm_PBMMC_ETV6-RUNX1}
 # rescale each batch to adjust for differences in sequencing depth between batches
-rescaled <- multiBatchNorm(uni.sce, batch = "Sample.Name")
+rescaled <- multiBatchNorm(uni.sce, batch = "SampleName")
 ```
 
 * We perform feature selection by averaging the variance components across all batches with the combineVar() function. We compute the average as it is responsive to batch-specific HVGs while still preserving the within-batch ranking of genes.
 
+
+```{r}
+my_combineBlocks <- function (blocks, ave.fields, pval.field, method, geometric, 
+    equiweight, weights, valid) 
+{
+    if (length(blocks) == 1L) {
+        return(blocks[[1]])
+    }
+    rn <- unique(lapply(blocks, rownames))
+    if (length(rn) != 1L) {
+        stop("gene identities should be the same")
+    }
+    if (equiweight) {
+        weights <- rep(1, length(blocks))
+    }
+    else if (is.null(weights)) {
+        stop("'weights' must be specified if 'equiweight=FALSE'")
+    }
+    original <- blocks
+    if (length(unique(vapply(original, nrow, 0L))) != 1L) {
+        stop("not all 'blocks' have the same number of rows")
+    }
+    if (!any(valid)) {
+        stop("no entry of 'blocks' has positive weights")
+    }
+    blocks <- blocks[valid]
+    weights <- weights[valid]
+    combined <- list()
+    for (i in ave.fields) {
+        extracted <- lapply(blocks, "[[", i = i)
+        #print(class(extracted))
+        #print(length(extracted))
+        if (geometric) {
+            extracted <- lapply(extracted, log)
+        }
+        extracted <- mapply("*", extracted, weights, SIMPLIFY = FALSE, 
+            USE.NAMES = FALSE)
+        averaged <- Reduce("+", extracted)/sum(weights)
+        if (geometric) {
+            averaged <- exp(averaged)
+        }
+        #print(class(averaged))
+        #print(length(averaged))
+        #print(head(averaged))
+        combined[[i]] <- averaged
+    }
+    extracted <- lapply(blocks, "[[", i = pval.field)
+    #print(class(extracted))
+    #print(length(extracted))
+        
+    combined$p.value <- do.call(combinePValues,
+                                c(extracted, list(method = method, weights = weights)))
+    #print(combined$p.value)
+
+    combined$FDR <- p.adjust(combined$p.value, method = "BH")
+    #print(combined$FDR)
+
+    output <- DataFrame(combined, row.names = rn[[1]])
+    #print(class(output))
+
+    return(output) # stop now
+    # or get error message:
+    # Error in h(simpleError(msg, call)) : 
+    # error in evaluating the argument 'X' in selecting a method for function 'lapply': trying to get slot "listData
+    # from an object (class "DFrame") that is not an S4 object
+
+    # dev
+    # trying to get rid of error.
+    # ... but dropping that
+    # ... because we only consult $bio once.
+
+    original_I <- lapply(original, I)
+    original_I2 <- c(lapply(original, I),
+                                  list(check.names = FALSE))
+
+    original_I3 <- do.call(DataFrame, original_I2)
+    original_I4 <- DataFrame(original_I3)
+
+    is(original_I3, "DataFrame")
+    
+    original_I3b <- as(original_I2, "DataFrame")
+    
+    # remaining code
+    output$per.block <- do.call(DataFrame,
+                                c(lapply(original, I),
+                                  list(check.names = FALSE))
+                                )
+    output
+}
+```
+
+```{r}
+#output <- my_combineBlocks(blocks=list(uni.dec[[1]], uni.dec[[2]]), 
+combined.dec <- my_combineBlocks(blocks=uni.dec, 
+    ave.fields=c("mean", "total", "bio", "tech"),
+    pval.field='p.value', 
+    method='fisher',
+    geometric=FALSE,
+    equiweight=TRUE,
+    weights=NULL,
+    valid=c(TRUE, TRUE))
+```
+
+
+
+
 ```{r combineVar_PBMMC_ETV6-RUNX1}
 # compute average variance components across samples
-combined.dec <- combineVar(uni.dec)
+#combined.dec <- combineVar(uni.dec)
+
 # identify highly variables genes
 # here as those with a positive biological component
 chosen.hvgs <- combined.dec$bio > 0
@@ -185,7 +355,7 @@ snn.gr <- buildSNNGraph(uncorrected, use.dimred="PCA")
 # identify cluster with the walk trap method
 clusters <- igraph::cluster_walktrap(snn.gr)$membership
 # get number of cells for each {cluster, batch} pair
-clusterTab <- data.frame("clusters"=clusters, "batch"=uncorrected$Sample.Name)
+clusterTab <- data.frame("clusters"=clusters, "batch"=uncorrected$SampleName)
 ```
 
 Cluster size and cell contribution by sample:
@@ -217,17 +387,17 @@ We can also visualize the uncorrected coordinates using a t-SNE plot. The strong
 ```{r diagTsneDraw_PBMMC_ETV6-RUNX1}
 set.seed(1111001)
 uncorrected <- runTSNE(uncorrected, dimred="PCA")
-# draw:
+# draw:
 p.tsne <- plotTSNE(uncorrected,
-	      colour_by="Sample.Name",
-	      shape_by="source_name") +
+	      colour_by="SampleName",
+	      shape_by="SampleGroup") +
 theme(legend.text = element_text(size = 7))
 
 p.tsne
 ```
 
 ```{r diagTsnePlotSplit_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7}
-p.tsne + facet_wrap(~uncorrected$source_name)
+p.tsne + facet_wrap(~uncorrected$SampleGroup)
 ```
 
 Of course, the other explanation for batch-specific clusters is that there are cell types that are unique to each batch. The degree of intermingling of cells from different batches is not an effective diagnostic when the batches involved might actually contain unique cell subpopulations. If a cluster only contains cells from a single batch, one can always debate whether that is caused by a failure of the correction method or if there is truly a batch-specific subpopulation. For example, do batch-specific metabolic or differentiation states represent distinct subpopulations? Or should they be merged together? We will not attempt to answer this here, only noting that each batch correction algorithm will make different (and possibly inappropriate) decisions on what constitutes “shared” and “unique” populations.
@@ -294,7 +464,7 @@ lp.tsne
 ```
 
 ```{r linReg_diagTsnePlotSplit_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7}
-lp.tsne + facet_wrap(~uncorrected$source_name)
+lp.tsne + facet_wrap(~uncorrected$SampleGroup)
 ```
 
 ## Mutual Nearest Neighbour correction
@@ -351,7 +521,7 @@ We cluster on the low-dimensional corrected coordinates to obtain a partitioning
 snn.gr <- buildSNNGraph(mnn.out, use.dimred="corrected", k=20)
 clusters.mnn <- igraph::cluster_walktrap(snn.gr)$membership
 colLabels(mnn.out) <- factor(clusters.mnn)
-clusterTab.mnn <- data.frame(clusters=clusters.mnn, batch=mnn.out$Sample.Name, source=mnn.out$source_name)
+clusterTab.mnn <- data.frame(clusters=clusters.mnn, batch=mnn.out$SampleName, source=mnn.out$SampleGroup)
 ```
 
 Cluster size and cell contribution by sample, with clusters sorted by size:
@@ -441,13 +611,13 @@ Large proportions of lost variance (>10%) suggest that correction is removing ge
 The following t-SNE shows the clusters identified:
 
 ```{r fastmnn_diagTsneClu_PBMMC_ETV6-RUNX1}
-mp.tsne.cluster <- plotTSNE(mnn.out, colour_by="label", shape_by="source_name")
+mp.tsne.cluster <- plotTSNE(mnn.out, colour_by="label", shape_by="SampleGroup")
 mp.tsne.cluster
 
 ```
 
 ```{r fastmnn_diagTsneCluBySampleName_dsi{{setSuf}}_PBMMC_ETV6-RUNX1}
-mp.tsne.cluster + facet_wrap(~colData(mnn.out)$Sample.Name)
+mp.tsne.cluster + facet_wrap(~colData(mnn.out)$SampleName)
 ```
 
 The following t-SNE plots show expression levels of known cell type marker genes.
@@ -953,7 +1123,7 @@ set.seed(1000110)
 mnn.out2 <- fastMNN(rescaled,
                     subset.row=marker.set,
                     BSPARAM=BiocSingular::RandomParam(deferred=TRUE))
-mnn.out2$source_name <- uncorrected$source_name # cell order is maintained by scran functions
+mnn.out2$SampleGroup <- uncorrected$SampleGroup # cell order is maintained by scran functions
 
 # compute t-SNE:
 mnn.out2 <- runTSNE(mnn.out2, dimred="corrected")
@@ -962,16 +1132,16 @@ mnn.out2 <- runTSNE(mnn.out2, dimred="corrected")
 We can also visualize the corrected coordinates using a t-SNE plot:
 
 ```{r consis_plotTsne_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
-plotTSNE(mnn.out2, colour_by="batch", shape_by="source_name")
+plotTSNE(mnn.out2, colour_by="batch", shape_by="SampleGroup")
 ```
 
 ```{r consis_plotTsneBySampleType_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7, eval=F}
-plotTSNE(mnn.out2, colour_by="source_name") +
-	facet_wrap(~colData(mnn.out2)$source_name, ncol=2)
+plotTSNE(mnn.out2, colour_by="SampleGroup") +
+	facet_wrap(~colData(mnn.out2)$SampleGroup, ncol=2)
 ```
 
 ```{r consis_plotTsneByBatch_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=7, fig.width=7, eval=F}
-plotTSNE(mnn.out2, colour_by="batch", shape_by="source_name") +
+plotTSNE(mnn.out2, colour_by="batch", shape_by="SampleGroup") +
 	facet_wrap(~colData(mnn.out2)$batch, ncol=3)
 ```
 
@@ -1073,8 +1243,8 @@ or point to the clustering chapter -->
 Cluster size and cell contribution by sample type, with clusters sorted by size:
 
 ```{r idPbmmcClu_barPlotDescSize_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7, eval=F}
-mnn.out$source_name <- uncorrected$source_name # cell order is maintained by scran functions
-tmpMat <- data.frame("clusters"=clusters.mnn, "batch"=mnn.out$source_name)
+mnn.out$SampleGroup <- uncorrected$SampleGroup # cell order is maintained by scran functions
+tmpMat <- data.frame("clusters"=clusters.mnn, "batch"=mnn.out$SampleGroup)
 tmpMatTab <- table(tmpMat)
 sortVecNames <- tmpMatTab %>% rowSums %>% sort(decreasing=TRUE) %>% names
 tmpMat$clusters <- factor(tmpMat$clusters, levels=sortVecNames)
@@ -1096,8 +1266,8 @@ decreasing proportion of PBMMC:
 
 ```{r idPbmmcClu_barPlotDescPropPbmmc_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
 tmpMat <- data.frame("clusters"=clusters.mnn,
-                     "batch"=mnn.out$source_name,
-                     "Sample.Name"=mnn.out$batch
+                     "batch"=mnn.out$SampleGroup,
+                     "SampleName"=mnn.out$batch
                      )
 sortVecNames <- round(tmpMatTab/rowSums(tmpMatTab),2) %>%
   as.data.frame() %>%
@@ -1118,7 +1288,7 @@ p2 <- ggplot(data=tmpMat, aes(x=clusters, fill=batch)) +
   scale_y_continuous(labels = scales::percent)
 #gridExtra::grid.arrange(p1, p2)
 
-p3 <- ggplot(data=tmpMat, aes(x=clusters, fill=Sample.Name)) +
+p3 <- ggplot(data=tmpMat, aes(x=clusters, fill=SampleName)) +
   geom_bar(position = "fill") +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) 
 
@@ -1138,7 +1308,7 @@ rm(p1, p2, p3, p4)
 ```{r idPbmmcClu_contingTabCluByBatch_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
 tab.mnn <- table(Cluster=clusters.mnn,
                  Batch=as.character(mnn.out$batch))
-                 #Batch=as.character(mnn.out$source_name))
+                 #Batch=as.character(mnn.out$SampleGroup))
 #tab.mnn <- as.data.frame(tab.mnn, stringsAsFactors=FALSE)
 ##tab.mnn
 
@@ -1156,31 +1326,31 @@ sortVecNames <- rowSums(normNoLog) %>% round(2) %>%
 ```{r idPbmmcClu_barPlotDescPropPbmmcSampleName_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
 #norm2 <- normNoLog %>% data.frame() %>%
   #tibble::rownames_to_column("clusters") %>%
-  #tidyr::pivot_longer(!clusters, names_to="Sample.Name", values_to="Freq")
+  #tidyr::pivot_longer(!clusters, names_to="SampleName", values_to="Freq")
   
 norm2 <- normNoLog %>% data.frame() %>%
   rename(clusters = Cluster) %>%
-  rename(Sample.Name = Batch) 
+  rename(SampleName = Batch) 
   
 norm2 <- norm2 %>%
-  left_join(unique(cb_sampleSheet[,c("Sample.Name", "source_name")]),
-            by="Sample.Name")
+  left_join(unique(cb_sampleSheet[,c("SampleName", "SampleGroup")]),
+            by="SampleName")
 
 norm2$clusters <- factor(norm2$clusters, levels=sortVecNames)
 #norm2 <- norm2 %>% as.data.frame()
 
 # fill by sample type
-p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=source_name)) +
+p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=SampleGroup)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
 	geom_col()
 
 # fill by sample name
-p2 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=Sample.Name)) +
+p2 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=SampleName)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
 	geom_col()
 
 # split by sample type
-p3 <- p2 + facet_wrap(~source_name)
+p3 <- p2 + facet_wrap(~SampleGroup)
 
 # show
 gridExtra::grid.arrange(p1, p2, p3)
@@ -1191,7 +1361,7 @@ rm(p1, p2, p3)
 
 ```{r idPbmmcClu_contingTabCluByType_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
 tab.mnn <- table(Cluster=clusters.mnn,
-		 Batch=as.character(mnn.out$source_name))
+		 Batch=as.character(mnn.out$SampleGroup))
 ##tab.mnn
 
 # Using a large pseudo.count to avoid unnecessarily
@@ -1216,14 +1386,14 @@ norm2 <- normNoLog %>%
   data.frame() %>%
   select(-sum, -prop) %>%
   tibble::rownames_to_column("clusters") %>% 
-  tidyr::pivot_longer(!clusters, names_to="source_name", values_to="Freq")
+  tidyr::pivot_longer(!clusters, names_to="SampleGroup", values_to="Freq")
 
 norm2$clusters <- factor(norm2$clusters, levels=sortVecNames)
 
-p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=source_name)) +
+p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=SampleGroup)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
 	geom_col()
-p2 <- p1 + facet_wrap(~source_name)
+p2 <- p1 + facet_wrap(~SampleGroup)
 
 # show
 gridExtra::grid.arrange(p1, p2)
@@ -1241,18 +1411,18 @@ norm2 <- normNoLog %>%
   data.frame() %>%
   select(-sum, -prop) %>%
   tibble::rownames_to_column("clusters") %>% 
-  #tidyr::pivot_longer(!c(clusters,propLt090), names_to="source_name", values_to="Freq")
-  #tidyr::pivot_longer(!c(clusters,propLt090,propLt080), names_to="source_name", values_to="Freq")
-  #tidyr::pivot_longer(!c(clusters,propLt090,propLt080,propLt050), names_to="source_name", values_to="Freq")
+  #tidyr::pivot_longer(!c(clusters,propLt090), names_to="SampleGroup", values_to="Freq")
+  #tidyr::pivot_longer(!c(clusters,propLt090,propLt080), names_to="SampleGroup", values_to="Freq")
+  #tidyr::pivot_longer(!c(clusters,propLt090,propLt080,propLt050), names_to="SampleGroup", values_to="Freq")
   tidyr::pivot_longer(!c(clusters,
                          grep("propLt", colnames(normNoLog), value=TRUE)
                          ),
-                      names_to="source_name",
+                      names_to="SampleGroup",
                       values_to="Freq")
 
 norm2$clusters <- factor(norm2$clusters, levels=sortVecNames)
 
-p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=source_name)) +
+p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=SampleGroup)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
 	geom_col()
 #p + facet_wrap(~propLt090)
@@ -1312,7 +1482,7 @@ colData(mnn.out) <- colData(mnn.out) %>%
   left_join(propLtDf, by="cluster") %>%
   DataFrame()
 
-p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=source_name)) +
+p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=SampleGroup)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
 	geom_col()
 #p + facet_wrap(~propLt090)
@@ -1406,13 +1576,13 @@ norm2 <- normNoLog %>%
   tidyr::pivot_longer(!c(cluster,
                          grep("tmpCluBool", colnames(normNoLog), value=TRUE)
                          ),
-                      names_to="source_name",
+                      names_to="SampleGroup",
                       values_to="Freq")
 
 norm2$cluster <- factor(norm2$cluster,
                         levels=paste0("c", sortVecNames))
 
-p <- ggplot(data=norm2, aes(x=cluster,y=Freq, fill=source_name)) +
+p <- ggplot(data=norm2, aes(x=cluster,y=Freq, fill=SampleGroup)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
 	geom_col()
 gridExtra::grid.arrange(p, p + facet_wrap(norm2$tmpCluBool))
