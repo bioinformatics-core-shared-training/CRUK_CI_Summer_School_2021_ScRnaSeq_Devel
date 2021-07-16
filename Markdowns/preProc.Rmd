@@ -915,7 +915,7 @@ summary(multi.outlier)
 
 ## Using PCA
 
-Another approach is to perform a principal components analysis (PCA) on the
+Another approach is to perform a principal component analysis (PCA) on the
 table of metrics, apply `adjOutlyingness` to the metrics table and use this to
 detect outliers. The `scater` function `runColDataPCA` can be used to perform
 the PCA and detect outliers. We'll need to add a couple of columns to the
@@ -930,7 +930,7 @@ sce.BM1 <- runColDataPCA(sce.BM1,
 			         BPPARAM = bp.params)
 ```
 
-This has added the results of the principle component analysis into a new slot
+This has added the results of the principal component analysis into a new slot
 in the SingleCellExperiment object specifically for holding the results of
 dimension reduction transformations such as PCA, t-SNE and UMAP. The results
 can be accessed using the `reducedDim` function.
