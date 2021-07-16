@@ -36,26 +36,13 @@ source /home/baller01/.local/share/r-miniconda/bin/activate r-reticulate
 source /home/baller01/.local/share/r-miniconda/bin/deactivate r-reticulate
 -->
 
-```{r, eval=FALSE}
-# OLD
-#projDir <- "/mnt/scratcha/bioinformatics/baller01/20200511_FernandesM_ME_crukBiSs2020"
-projDir <- "/data/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
-
-outDirBit <- "AnaWiSce/Attempt3"
-nbPcToComp <- 50
-splSetToGet <- "PBMMC,ETV6-RUNX1" # params may not be read in if knitting book.
-splSetVec <- unlist(strsplit(splSetToGet, ",")) # params may not be read in if knitting
-```
-
 ```{r, include=FALSE, eval=TRUE}
 params2 <- list(
-  "projDir" = "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020",
+  #"projDir" = "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020",
+  "projDir" = "..",
   "dirRel" = "..",
-  #"inpDirBit" = "AnaWiSce/Ana1",
-  #"outDirBit" = "AnaWiSce/Ana1",
-  #"bookType" = "mk",
-  "inpDirBit" = "AnaWiSce/AnaKmWiC",
-  "outDirBit" = "AnaWiSce/AnaKmWiC",
+  "inpDirBit" = "CourseMaterials",
+  "outDirBit" = "CourseMaterials",
   "bookType" = "km",
   "cacheBool"  = FALSE,
   "setName" = "caron",
@@ -98,25 +85,30 @@ anaStg <- gsub("_", "-", anaStg)
 #Cairo::CairoX11(display=displayToUse);
 ```
 
-```{r, dev="CairoPNG"}
-#```{r setup, include=FALSE, echo=FALSE}
-	# removing chunk name for now because would need to make it dynamic, eg {{anaStg}} and expand
-	# TODO do that later
-
-# First, set some variables:
+```{r clusPostDsi_Caron.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
+	# chunk name would need to be dynamic, eg {{anaStg}} and expand
 require(knitr)
+
+# if X11 is not available, add:
+# 'dev="CairoPNG"' in chunk param above
+# options(bitmapType='cairo')
+# opts_chunk$set(dev="CairoPNG")
+# library(Cairo)
+
+options(bitmapType='cairo') # if X11 is not available
+opts_chunk$set(dev="CairoPNG") # if X11 is not available
+library(Cairo) # if X11 is not available
+
+# Set some variables:
 opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
 opts_chunk$set(echo = TRUE)
 opts_chunk$set(eval = TRUE) 
-opts_chunk$set(dev="CairoPNG")
 opts_chunk$set(fig.width=7, fig.height=7)
-#opts_chunk$set(dev = c("png"))
-options(bitmapType='cairo')
 options(stringsAsFactors = FALSE)
 set.seed(123) # for reproducibility
 ```
 
-```{r debug1_clusteringPostDsi}
+```{r debug1_clusteringPostDsi, eval=FALSE}
 capabilities("cairo")
 getOption('bitmapType')
 options(bitmapType='cairo')
@@ -127,14 +119,14 @@ getOption('bitmapType')
 library(ggplot2)
 library(scater)
 library(scran)
-library(dplyr)
+library(tidyverse)
 library(dynamicTreeCut)
 library(cluster) # for silhouette
 library(igraph) # for graph-based clustering and plotting networks 
 library(leiden) # for community detection
 library(pheatmap)
-library(Cairo)
-
+library(glue)
+library(patchwork)
 fontsize <- theme(axis.text=element_text(size=12), axis.title=element_text(size=16))
 ```
 
@@ -166,24 +158,34 @@ We will load the R file keeping the SCE (SingleCellExperiment) object with the n
 
 # need library size
 # all sample types
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s.Rds", projDir, outDirBit, setName, setSuf)
-if(!file.exists(tmpFn))
-{
-	knitr::knit_exit()
-}
-sce0 <- readRDS(tmpFn)
+#tmpFn <- sprintf("%s/%s/Robjects/%s_postDeconv%s.Rds", projDir, outDirBit, setName, setSuf)
+#if(!file.exists(tmpFn))
+#{
+#	knitr::knit_exit()
+#}
+#sce0 <- readRDS(tmpFn)
+
+dir("../CourseMaterials/Robjects/")
+sce0 <- readRDS("../CourseMaterials/Robjects/caron_postDeconv_5hCellPerSpl.Rds")
+
 
 # Read mnn.out object in:
 # only sample types in splSetToGet2
 splSetToGet2 <- gsub(",", "_", splSetToGet)
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_dsi_%s.Rds",
-		projDir, outDirBit, setName, setSuf, splSetToGet2)
-print(tmpFn)
-if(!file.exists(tmpFn))
-{
-	knitr::knit_exit()
-}
-sce <- readRDS(tmpFn) # ex mnn.out
+
+#tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_dsi_%s.Rds",
+#		projDir, outDirBit, setName, setSuf, splSetToGet2)
+#print(tmpFn)
+#if(!file.exists(tmpFn))
+#{
+#	knitr::knit_exit()
+#}
+#sce <- readRDS(tmpFn) # ex mnn.out
+
+sce <- readRDS("../CourseMaterials/Robjects/DataIntergration_mnn.out.rds")
+
+
+
 #sce2 <- readRDS(tmpFn) # ex mnn.out
 #rownames(sce) <- rownames(sce2)
 rowData(sce) <- cbind(rowData(sce), rowData(sce0)[rownames(sce),]) %>% DataFrame
@@ -272,33 +274,33 @@ Cell counts for each cluster (rows) and each sample group (columns):
 
 ```{r table_hierar_splGroup}
 # per sample group
-table(hc.clusters, sce$source_name)
+table(hc.clusters, sce$SampleGroup)
 ```
 
 Cell counts for each cluster (rows) and each sample (columns):
 
 ```{r table_hierar_splName}
 # per sample
-table(hc.clusters, sce$Sample.Name)
+table(hc.clusters, sce$SampleName)
 ```
 
 This data (cell number) may also be shown as heatmap.
 
 ```{r}
-tmpTab <- table(hc.clusters, sce$Sample.Name)
+tmpTab <- table(hc.clusters, sce$SampleName)
 rownames(tmpTab) = paste("hc", rownames(tmpTab), sep = "_")
 
 # columns annotation with cell name:
-mat_col <- colData(sce) %>% data.frame() %>% select(Sample.Name, source_name) %>% unique
-rownames(mat_col) <- mat_col$Sample.Name
-mat_col$Sample.Name <- NULL
+mat_col <- colData(sce) %>% data.frame() %>% select(SampleName, SampleGroup) %>% unique
+rownames(mat_col) <- mat_col$SampleName
+mat_col$SampleName <- NULL
 
 # Prepare colours for clusters:
-colourCount = length(unique(mat_col$source_name))
+colourCount = length(unique(mat_col$SampleGroup))
 getPalette = grDevices::colorRampPalette(RColorBrewer::brewer.pal(9, "Set1"))
 
-mat_colors <- list(source_name = getPalette(colourCount))
-names(mat_colors$source_name) <- unique(mat_col$source_name)
+mat_colors <- list(SampleGroup = getPalette(colourCount))
+names(mat_colors$SampleGroup) <- unique(mat_col$SampleGroup)
 ```
 
 Heatmap, with samples ordered as in sample sheet:
@@ -330,19 +332,27 @@ colored by cluster and sized total UMI counts ('sum').
 sce$cluster <- factor(hc.clusters)
 # make, store and show TSNE plot:
 #g <- plotTSNE(sce, colour_by = "cluster", size_by = "sum", shape_by="source_name")
-g <- plotTSNE(sce, colour_by = "cluster", shape_by="source_name")
+g <- plotTSNE(sce, colour_by = "cluster", shape_by="SampleGroup")
 g
 ```
 
 Split by sample group:
 
-```{r plot_tsne_hierar_facet, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$source_name))/2)*5}
+```{r plot_tsne_hierar_facet, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$SampleGroup))/2)*5}
 # split by sample and show:
-g <- g + facet_wrap(. ~ sce$source_name)
+g <- g + facet_wrap(. ~ sce$SampleGroup)
 g
 ```
 
 In some areas cells are not all assigned to the same cluster.
+
+We can also check the contribution of each sample by painting cells by 'SampleName':
+
+```{r}
+g <- plotTSNE(sce, colour_by = "SampleName", shape_by="SampleGroup") +
+  facet_wrap(. ~ sce$SampleGroup)
+g
+```
 
 #### Separatedness
 
@@ -411,7 +421,7 @@ Let us define six clusters.
 # it is usually best to try several times,
 # by setting 'nstart' to say 20,
 # kmeans() will then retain the run with the lowest within cluster variation.
-kclust <- kmeans(pcs, centers=6, nstart = 20) 
+kclust <- kmeans(pcs, centers = 6, nstart = 20) 
 
 # compute silhouette
 sil <- silhouette(kclust$cluster, dist(pcs))
@@ -431,21 +441,21 @@ The t-SNE plot below shows cells color-coded by cluster membership:
 tSneCoord <- as.data.frame(reducedDim(sce, "TSNE"))
 colnames(tSneCoord) <- c("TSNE1", "TSNE2")
 # add sample type:
-tSneCoord$source_name <- sce$source_name
+tSneCoord$SampleGroup <- sce$SampleGroup
 # add cluster info:
 tSneCoord$cluster <- as.factor(kclust$cluster)
 # draw plot
 p2 <- ggplot(tSneCoord, aes(x=TSNE1, y=TSNE2,
 			    colour=cluster,
-			    shape=source_name)) +
+			    shape=SampleGroup)) +
 	geom_point()
 p2
 ```
 
 Split by sample type:
 
-```{r plot_tSNE_kmeans_k6_split, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$source_name))/2)*5}
-p2 + facet_wrap(~ sce$source_name)
+```{r plot_tSNE_kmeans_k6_split, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$SampleGroup))/2)*5}
+p2 + facet_wrap(~ sce$SampleGroup)
 ```
 
 To find the most appropriate number of clusters, one performs the analysis for a series of values for k and for each k value computes a 'measure of fit' of the clusters defined. Several metrics exist. We will look at:
@@ -552,7 +562,7 @@ plot(2:20, Ks,
 ```
 
 <!--
-The plot above shows that silhouette values vary little for k between 4 and 11, though higher values are observed for k at 5, 8, 9 and 10.
+The plot above shows that silhouette values vary little for k between 4 and 10
 -->
 
 #### Gap statistic
@@ -645,7 +655,8 @@ One may also use multiple metrics rather than only one and check how they concor
 ```{r NbClust_run, eval=TRUE}
 # run only once and save outcome to file to load later.
 
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_500CellK2to20NbClust.Rds", projDir, outDirBit, setName, setSuf)
+tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_500CellK2to20NbClust.Rds",
+                 projDir, outDirBit, setName, setSuf)
 if(file.exists(tmpFn))
 {
 	nb <- readRDS(file=tmpFn)
@@ -723,8 +734,8 @@ The number of cells in the data set is large so we randomly choose 1000 nodes (c
 # https://igraph.org/r/doc/subgraph.html
 
 # Add vertices (nodes. ie cells) annotation
-V(snn.gr)$Sample.Name <- colData(sce)$Sample.Name
-V(snn.gr)$source_name <- as.character(colData(sce)$source_name)
+V(snn.gr)$SampleName <- colData(sce)$SampleName
+V(snn.gr)$SampleGroup <- as.character(colData(sce)$SampleGroup)
 
 # pick 1000 nodes randomly
 edgesToGet <- sample(nrow(snn.gr[]), 1000)
@@ -734,20 +745,20 @@ snn.gr.subset <- subgraph(snn.gr, edgesToGet)
 g <- snn.gr.subset
 
 # set colors for clusters
-if(length(unique(V(g)$source_name)) <= 2)
+if(length(unique(V(g)$SampleGroup)) <= 2)
 {
-  cols <- colorspace::rainbow_hcl(length(unique(V(g)$source_name)))
+  cols <- colorspace::rainbow_hcl(length(unique(V(g)$SampleGroup)))
 } else {
-  cols <- RColorBrewer::brewer.pal(n = length(unique(V(g)$source_name)), name = "RdYlBu")
+  cols <- RColorBrewer::brewer.pal(n = length(unique(V(g)$SampleGroup)), name = "RdYlBu")
 }
-names(cols) <- unique(V(g)$source_name)
+names(cols) <- unique(V(g)$SampleGroup)
 
 # plot graph
 plot.igraph(
   g, layout = layout_with_fr(g),
   vertex.size = 3, vertex.label = NA,
-  vertex.color = cols[V(g)$source_name],
-  frame.color = cols[V(g)$source_name],
+  vertex.color = cols[V(g)$SampleGroup],
+  frame.color = cols[V(g)$SampleGroup],
   main = "default parameters"
 )
 
@@ -767,7 +778,6 @@ Several methods to detect clusters ('communities') in networks rely on the 'modu
 #### Walktrap method
 
 <!-- #### Community detection via short random walks: 'walktrap' -->
-
 
 The walktrap method relies on short random walks (a few steps) through the network. These walks tend to be 'trapped' in highly-connected regions of the network. Node similarity is measured based on these walks. Nodes are first each assigned their own community. Pairwise distances are computed and the two closest communities are grouped. These steps are repeated a given number of times to produce a dendrogram. Hierarchical clustering is then applied to the distance matrix. The best partition is that with the highest modularity. <!-- https://link.springer.com/article/10.1007/s11227-019-03018-x -->
 
@@ -805,26 +815,26 @@ table(wt.clusters)
 The table below shows the cluster distribution across sample types. Many clusters are observed in only one sample type.
 
 ```{r rep_clusters_sampleTypes}
-table(wt.clusters, sce$source_name)
+table(wt.clusters, sce$SampleGroup)
 ```
 
 The table below shows the cluster distribution across samples. Most clusters comprise cells from several replicates of a same sample type, while few are observed in only one sample.
 
 ```{r rep_clusters_samples}
-tmpTab <- table(wt.clusters, sce$Sample.Name)
+tmpTab <- table(wt.clusters, sce$SampleName)
 rownames(tmpTab) = paste("4-step", rownames(tmpTab), sep = "_")
 
 # columns annotation with cell name:
-mat_col <- colData(sce) %>% data.frame() %>% select(Sample.Name, source_name) %>% unique
-rownames(mat_col) <- mat_col$Sample.Name
-mat_col$Sample.Name <- NULL
+mat_col <- colData(sce) %>% data.frame() %>% select(SampleName, SampleGroup) %>% unique
+rownames(mat_col) <- mat_col$SampleName
+mat_col$SampleName <- NULL
 
 # Prepare colours for clusters:
-colourCount = length(unique(mat_col$source_name))
+colourCount = length(unique(mat_col$SampleGroup))
 getPalette = grDevices::colorRampPalette(RColorBrewer::brewer.pal(9, "Set1"))
 
-mat_colors <- list(source_name = getPalette(colourCount))
-names(mat_colors$source_name) <- unique(mat_col$source_name)
+mat_colors <- list(SampleGroup = getPalette(colourCount))
+names(mat_colors$SampleGroup) <- unique(mat_col$SampleGroup)
 
 pheatmap(tmpTab,
            annotation_col    = mat_col,
@@ -985,8 +995,8 @@ The plot below displays the network with nodes (the 1000 randomly chosen cells) 
 ##cols <- RColorBrewer::brewer.pal(n = nlevels(sce$cluster), name = "RdYlBu")
 ##cols <- grDevices:::colorRampPalette(RColorBrewer::brewer.pal(nlevels(sce$cluster), "RdYlBu"))
 
-V(snn.gr)$Sample.Name <- colData(sce)$Sample.Name
-V(snn.gr)$source_name <- as.character(colData(sce)$source_name)
+V(snn.gr)$SampleName <- colData(sce)$SampleName
+V(snn.gr)$SampleGroup <- as.character(colData(sce)$SampleGroup)
 V(snn.gr)$louvain <- as.character(colData(sce)$louvain)
 
 # once only # edgesToGet <- sample(nrow(snn.gr[]), 1000)
@@ -1029,9 +1039,9 @@ p
 
 Split by sample type:
 
-```{r show_louvain_tsne_2, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$source_name))/2)*5}
+```{r show_louvain_tsne_2, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$SampleGroup))/2)*5}
 # facet by sample group:
-p + facet_wrap(~ sce$source_name)
+p + facet_wrap(~ sce$SampleGroup)
 ```
 
 #### Leiden method
@@ -1100,6 +1110,7 @@ g <- snn.gr.subset
 rgb.palette <- colorRampPalette(c("purple","yellow"), space="rgb") # Seurat-like
 #rgb.palette <- colorRampPalette(c("yellow2","goldenrod","darkred"), space="rgb")
 ##rgb.palette <- colorRampPalette(c("red","orange","blue"), space="rgb")
+##rgb.palette <- colorRampPalette(c("red","green","blue"), space="rgb")
 cols <- rgb.palette(length(unique(V(g)$leiden)))
 names(cols) <- as.character(1:length(unique(V(g)$leiden)))
 
@@ -1115,8 +1126,9 @@ legend('bottomright',
        pch=21,
        col=cols, # "#777777",
        pt.bg=cols,
-       pt.cex=1, cex=.6, bty="n", ncol=2)
+       pt.cex=2, cex=.8, bty="n", ncol=2)
 ```
+
 The t-SNE plot below shows cells color-coded by cluster membership:
 
 ```{r show_leiden_tsne_1, fig.height=6, fig.width=8}
@@ -1127,9 +1139,9 @@ p
 
 Split by sample type:
 
-```{r show_leiden_tsne_2, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$source_name))/2)*5}
+```{r show_leiden_tsne_2, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$SampleGroup))/2)*5}
 # facet by sample group:
-p + facet_wrap(~ sce$source_name)
+p + facet_wrap(~ sce$SampleGroup)
 ```
 
 ####  Modularity to assess clusters quality
@@ -1225,7 +1237,7 @@ legend('bottomright',
 The t-SNE plot below shows cells color-coded by cluster membership split by
 sample type:
 
-```{r, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$source_name))/2)*5}
+```{r, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$SampleGroup))/2)*5}
  # ```{r, out.width = '100%'}
 sce$cluster.out.10 <- cluster.out.10
 sce$cluster.out.10.col <- cols[cluster.out.10]
@@ -1235,17 +1247,17 @@ sce$cluster.out.10.col <- cols[cluster.out.10]
 tSneCoord <- as.data.frame(reducedDim(sce, "TSNE"))
 colnames(tSneCoord) <- c("TSNE1", "TSNE2")
 # add sample type:
-tSneCoord$source_name <- sce$source_name
+tSneCoord$SampleGroup <- sce$SampleGroup
 # add cluster info:
 tSneCoord$cluster.out.10.col <- sce$cluster.out.10.col
 # draw plot
 p2 <- ggplot(tSneCoord, aes(x=TSNE1, y=TSNE2,
 			    color=cluster.out.10,
-			    shape=source_name)) +
+			    shape=SampleGroup)) +
 	geom_point()
 p2 <- p2 + scale_color_manual(values = cols)
 # facet by sample group:
-p2 + facet_wrap(~ sce$source_name) +
+p2 + facet_wrap(~ sce$SampleGroup) +
 	  theme(legend.text=element_text(size=rel(0.7)))
 ```
 
@@ -1288,7 +1300,7 @@ Example with B cell marker genes MS4A1 and CD79A:
 
 ```{r exprKnownMarkers_plot1_clusteringPostDsi, fig.width=2*5, fig.height=5}
 rownames(sce) <- scater::uniquifyFeatureNames(
-  rowData(sce)$ensembl_gene_id,
+  rowData(sce)$ID,
   rowData(sce)$Symbol)
 p1 <- plotTSNE(sce, by_exprs_values = "reconstructed", colour_by = "MS4A1") +
   ggtitle("B cells: MS4A1")
@@ -1318,7 +1330,6 @@ rm(p1, p2)
 We now show the distribution of expression levels for marker genes of other PBMC types.
 
 ```{r}
-#markGenes <- c("IL7R", "CCR7", "S100A4", "CD14", "LYZ", "MS4A1", "CD8A", "FCGR3A", "MS4A7", "GNLY", "NKG7", "FCER1A", "CST3", "PPBP")
 markGenesFull <- list(
   "Naive CD4+ T cells"=c("IL7R", "CCR7"),
   "Memory CD4+ T cells"=c("IL7R", "S100A4"),
@@ -1390,17 +1401,18 @@ plotExpression2(sce, ctx, markGenesAvail)
 Write SCE object to file.
 
 ```{r}
-#tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s%s_%s_clustered.Rds",
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s%s_%s_clust.Rds",
-                 projDir, outDirBit, setName, setSuf, dsiSuf, splSetToGet2)
+#tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s%s_%s_clust.Rds",
+#                 projDir, outDirBit, setName, setSuf, dsiSuf, splSetToGet2)
+# eg caron_postDeconv_5hCellPerSpl_dsi_PBMMC_ETV6-RUNX1_clust.Rds
+tmpFn <- str_glue("{projDir}/{outDirBit}/Robjects/{setName}_postDeconv{setSuf}{dsiSuf}_{splSetToGet2}_clust.Rds")
 print(tmpFn)
 saveRDS(sce, file=tmpFn)
 ```
 
 ## Session information
 
-<details>
+<!--<details>-->
 ```{r}
 sessionInfo()
 ```
-</details>
+<!--</details>-->
