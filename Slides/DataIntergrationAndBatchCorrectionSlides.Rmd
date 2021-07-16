@@ -1,13 +1,14 @@
 ---
 title: "Data Integration and Batch Correction"
 author: "Abbi Edwards"
-date: '28th June 2021'
+date: "28th June 2021"
 output:
+  beamer_presentation: default
   ioslides_presentation:
-    widescreen: true
-    smaller: true
-    logo: ../Images/CRUK_CC_whiteBgd.jpg
     css: css/stylesheet.css
+    logo: ../Images/CRUK_CC_whiteBgd.jpg
+    smaller: yes
+    widescreen: yes
 ---
 
 ```{r include=FALSE}
@@ -80,11 +81,27 @@ A useful quick look
 
 ## Checking our correction has worked
 
-
+<img src="../Images/batchCor_corPCA.png" class="centerimg" style="width: 32%; margin-top: 60px;">
+<img src="../Images/batchCor_corTSNE.png" class="left" style="width: 32%; margin-top: 60px;">
+<img src="../Images/batchCor_corUMAP.png" class="right" style="width: 32%; margin-top: 60px;">
 
 ## Checking our correction hasn't over worked
 
+- If you use fastMNN in the absence of a batch effect, it may not work correctly
+
+- It is possible to remove genuine biological heterogeneity
+
+- fastMNN can be instructed to skip the batch correction if the batch effect is below a threshold. You can use the effect sizes it calculates to do this.
+
+- In reality the absence of any batch effect would warrant further investigation.
+
 ## Using the corrected values
 
+The value in batch correction is that it enables you to see population heterogeneity within clusters/celltypes accross batches. 
 
+  - Also increases the number of cells you have
+  
+However the corrected values should not be used for gene based analysis eg. DE/marker detection.
+
+  - fastMNN doesn't preserve the magnitude or direction of per-gene expression and may have introduced artifical agreement between batches on the gene level.
 

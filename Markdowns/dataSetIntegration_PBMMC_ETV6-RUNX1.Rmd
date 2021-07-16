@@ -89,6 +89,8 @@ sampleGroupLevels <- levels(factor(colData(sce)$SampleName))
 sampleGroupToGet <- grep("PBMMC|ETV6-RUNX1", sampleGroupLevels, value = TRUE)
 all.sce <- lapply(sampleGroupToGet, function(x){ subset(sce, , SampleName==x) })
 names(all.sce) <- sampleGroupToGet
+
+saveRDS(all.sce, "../RobjectsReadOnly/DataIntergration_all_sce.rds")
 ```
 
 
@@ -313,7 +315,7 @@ combined.dec <- my_combineBlocks(blocks=uni.dec,
 
 ```{r combineVar_PBMMC_ETV6-RUNX1}
 # compute average variance components across samples
-#combined.dec <- combineVar(uni.dec)
+combined.dec <- combineVar(uni.dec)
 
 # identify highly variables genes
 # here as those with a positive biological component
