@@ -1,0 +1,795 @@
+---
+title: "Extention to Data Integration Chapter"
+author: "Abbi Edwards"
+date: "16/07/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## Extra things to try
+
+### Other genes
+
+```{r exerCellTypeMarkerList_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
+genesToShow2 <- c(
+		 "IL7R", # IL7R, CCR7 	Naive CD4+ T
+		 "CCR7", # IL7R, CCR7 	Naive CD4+ T
+		 "S100A4", # IL7R, S100A4 	Memory CD4+
+		 "CD14", # CD14, LYZ 	CD14+ Mono
+		 "LYZ", # CD14, LYZ 	CD14+ Mono
+		 "MS4A1", # MS4A1 	B
+		 "CD8A", # CD8A 	CD8+ T
+		 "FCGR3A", # FCGR3A, MS4A7 	FCGR3A+ Mono
+		 "MS4A7", # FCGR3A, MS4A7 	FCGR3A+ Mono
+		 "GNLY", # GNLY, NKG7 	NK
+		 "NKG7", # GNLY, NKG7 	NK
+		 "FCER1A", # DC
+		 "CST3", # DC
+		 "PPBP" # Platelet
+		)
+```
+
+```{r exerCellTypeMarkerList2_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
+tmpInd <- which(rowData(uncorrected)$Symbol %in% genesToShow2)
+ensToShow <- rowData(uncorrected)$ensembl_gene_id[tmpInd]
+table(ensToShow %in% rownames(rowData(mnn.out)))
+ensToShow <- ensToShow[ensToShow %in% rownames(rowData(mnn.out))]
+```
+
+```{r exerCellTypeMarkerPlot_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
+for (genex in ensToShow)
+{
+	p <- plotTSNE(mnn.out, colour_by = genex, by_exprs_values="reconstructed")
+	p <- p + ggtitle(paste(genex, rowData(uncorrected)[genex,"Symbol"]))
+	print(p)
+}
+```
+
+### Clustree
+
+```{r biolHet_comp_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, warning=FALSE, eval=F}
+plotList <- vector(mode = "list", length = length(splVec))
+treeList <- vector(mode = "list", length = length(splVec))
+for (splIdx in 1:length(splVec)) {
+  # heatmap
+  tab <- table(
+    paste("before", colLabels(rescaled[[splIdx]]), sep="_"),
+    paste("after", clusters.mnn[rescaled2$batch==splVec[splIdx]], sep="_")
+    )
+  plotList[[splIdx]] <- pheatmap(log10(tab+10),
+                                 cluster_row=FALSE,
+                                 cluster_col=FALSE,
+                                 col=rev(viridis::magma(100)),
+                                 main=sprintf("%s",
+                                              splVec[splIdx]),
+                                 silent=TRUE,
+                                 fontsize=7)
+  # cluster tree:
+  combined <- cbind(
+    cl.1=colLabels(rescaled[[splIdx]]),
+    cl.2=clusters.mnn[rescaled2$batch==splVec[splIdx]])
+  treeList[[splIdx]]  <- clustree(combined, prefix="cl.", edge_arrow=FALSE) +
+    ggtitle(splVec[splIdx]) +
+    #theme(legend.background = element_rect(color = "yellow")) +
+    #theme(legend.position='bottom') +
+    #theme(legend.box="vertical") +
+    #theme(legend.box="horizontal") +
+    theme(legend.margin=margin()) #+
+    #guides(fill=guide_legend(nrow=2, byrow=FALSE))
+    #theme(legend.position = "none")
+}
+```
+
+```{r biolHet_plotDraw_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, warning=FALSE, eval=F}
+g_legend<-function(a.gplot){
+   tmp <- ggplot_gtable(ggplot_build(a.gplot))
+   leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+   legend <- tmp$grobs[[leg]]
+   return(legend)
+}
+
+redrawClutree <- function(p){
+#p <- treeList[[1]] + theme(legend.position='bottom')
+#p <- p + theme(legend.background = element_rect(color = "yellow"))
+p <- p + theme(legend.justification = "left")
+#p <- p + theme(legend.justification = c(0,1))
+#lemon::gtable_show_names(p)
+pNoLeg <- p + theme(legend.position = "none")
+# edge colour:
+pEdgeCol <- p +
+  #guides(edge_colour = FALSE) +
+  guides(edge_alpha = FALSE) +
+  guides(size = FALSE) +
+  guides(colour = FALSE) 
+pEdgeCol.leg <- g_legend(pEdgeCol)
+# edge alpha:
+pEdgeAlpha <- p +
+  guides(edge_colour = FALSE) +
+  #guides(edge_alpha = FALSE) +
+  guides(size = FALSE) +
+  guides(colour = FALSE) 
+pEdgeAlpha.leg <- g_legend(pEdgeAlpha)
+# size
+pSize <- p +
+  guides(edge_colour = FALSE) +
+  guides(edge_alpha = FALSE) +
+  #guides(size = FALSE) +
+  guides(colour = FALSE) 
+pSize.leg <- g_legend(pSize)
+# colour
+pColour <- p +
+  guides(edge_colour = FALSE) +
+  guides(edge_alpha = FALSE) +
+  guides(size = FALSE) #+
+  #guides(colour = FALSE) 
+pColour.leg <- g_legend(pColour)
+
+#gridExtra::grid.arrange(pNoLeg, pEdgeCol.leg, nrow=2, ncol=1, heights=c(unit(.8, "npc"), unit(.2, "npc")))
+if(FALSE)
+{
+grobx <- gridExtra::grid.arrange(pNoLeg,
+                        pEdgeCol.leg,
+                        pEdgeAlpha.leg,
+                        pColour.leg,
+                        pSize.leg,
+                        nrow=3, ncol=2,
+                        heights=c(unit(.8, "npc"),
+                                  unit(.1, "npc"),
+                                  unit(.1, "npc")),
+                        widths=c(unit(.3, "npc"), unit(.7, "npc")),
+                        layout_matrix=matrix(c(1,1,2,5,4,3), ncol=2, byrow=TRUE)
+                        )
+}
+if(FALSE)
+{
+grobx <- gridExtra::arrangeGrob(pNoLeg,
+                        pEdgeCol.leg,
+                        pEdgeAlpha.leg,
+                        pColour.leg,
+                        pSize.leg,
+                        #nrow=3, ncol=2,
+                        #layout_matrix=matrix(c(1,1,2,5,4,3), ncol=2, byrow=TRUE),
+                        nrow=2, ncol=3,
+                        layout_matrix=matrix(c(1,1,2,5,4,3), ncol=3, byrow=FALSE),
+                        widths=c(unit(.70, "npc"),
+                                  unit(.15, "npc"),
+                                  unit(.15, "npc")),
+                        heights=c(unit(.7, "npc"),
+                                 unit(.3, "npc"))
+                        )
+}
+
+grobx <- gridExtra::arrangeGrob(pNoLeg,
+                        pEdgeCol.leg,
+                        pEdgeAlpha.leg,
+                        #pColour.leg,
+                        pSize.leg,
+                        nrow=1, ncol=4,
+                        layout_matrix=matrix(c(1,2,3,4), ncol=4, byrow=TRUE),
+                        widths=c(unit(.64, "npc"),
+                                  unit(.12, "npc"),
+                                  unit(.12, "npc"),
+                                  unit(.12, "npc"))
+                        )
+}
+##gx <- redrawClutree(treeList[[1]] + theme(legend.position='bottom'))
+##grid::grid.draw(gx)
+## fine # gxList <- lapply(treeList, function(x){redrawClutree(x+theme(legend.position='bottom'))})
+gxList <- lapply(treeList, function(x){redrawClutree(x)})
+##gridExtra::marrangeGrob(gxList, nrow=2, ncol=2)
+```
+
+```{r biolHet_plotShowHeatmap_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+grobList <- lapply(plotList, function(x){x[[4]]})
+gridExtra::grid.arrange(grobs = grobList,
+      ncol=2,
+      top = grid::textGrob("clusterings concordance (number of cells, log10 scale)",
+                     gp=grid::gpar(fontsize=12,font=3))
+)
+```
+
+ Clusters are represented as filled circles colored by cluster set ('before' in pink, 'after' in blue) and sized by cell number. A pair of clusters from two sets are linked according to the number of cells they share with a link that informs on the number of cells shared (color) and the 'incoming node' proportion for the node it points to (transparency). Although these plots convey more information than heatmaps below, they may not be as easy to read.
+ 
+```{r biolHet_plotShowTree_PBMMC_ETV6-RUNX1, eval=F}
+#```{r, fig.height=figSize*length(treeList)/2, fig.width=figSize}
+#gridExtra::grid.arrange(grobs = treeList,
+gridExtra::grid.arrange(grobs = gxList,
+      ncol=1
+)
+```
+
+The same plots in more compact form with no legend:
+
+<!-- remove legend and have plots in two columns -->
+
+```{r biolHet_plotDrawTree2_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+treeList <- lapply(treeList, function(p){
+  p +
+    guides(edge_colour = FALSE) +
+    guides(edge_alpha = FALSE) +
+    guides(size = FALSE) +
+    guides(colour = FALSE) 
+})
+```
+
+```{r biolHet_plotShowTree2_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=7, fig.width=7, eval=F}
+gridExtra::grid.arrange(grobs = treeList,
+      ncol=2
+)
+```
+
+### Coassignment probabilities
+
+Another evaluation approach is to compute the **coassignment probabilities**, i.e. the probability that cells from two within-batch clusters are clustered together in the across-batch clustering. High probabilities off the diagonal indicate that within-batch clusters are merged in the across-batch analysis. We would generally expect low off-diagonal probabilities for most pairs of clusters, though this may not be reasonably possible if the within-batch clusters were poorly separated in the first place.
+
+The plots below display the coassignment probabilities for the within-batch clusters, based on coassignment of cells in the across-batch clusters obtained after MNN correction. One heatmap is generated for each sample, where each entry is colored according to the coassignment probability between each pair of within-batch clusters:
+
+```{r coasProb_plot_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, warning=FALSE, eval=F}
+
+# coassignProb manual: now deprecated for pairwiseRand. 
+# Note that the coassignment probability is closely related to the Rand index-based ratios broken down by cluster pair in pairwiseRand with mode="ratio" and adjusted=FALSE. The off-diagonal coassignment probabilities are simply 1 minus the off-diagonal ratio, while the on-diagonal values differ only by the lack of consideration of pairs of the same cell in pairwiseRand. 
+
+plotList <- vector(mode = "list", length = length(splVec))
+for (splIdx in 1:length(splVec)) {
+  tab <- coassignProb(colLabels(rescaled[[splIdx]]),
+                      clusters.mnn[rescaled2$batch==splVec[splIdx]])
+  plotList[[splIdx]] <- pheatmap(tab,
+                                 cluster_row=FALSE,
+                                 cluster_col=FALSE,
+                                 col=rev(viridis::magma(100)),
+                                 main=sprintf("%s probabilities", splVec[splIdx]),
+                                 silent=TRUE)
+}
+grobList <- lapply(plotList, function(x){x[[4]]})
+gridExtra::grid.arrange(grobs = grobList,
+      ncol=2
+)
+```
+
+Note that the coassignment probability is closely related to the Rand index-based ratios broken down by cluster pair (in `pairwiseRand()` with mode="ratio" and adjusted=FALSE). 
+
+### Encouraging consistency with marker genes
+
+In some situations, we will already have performed within-batch analyses to characterize salient aspects of population heterogeneity. This is not uncommon when merging datasets from different sources where each dataset has already been analyzed, annotated and interpreted separately. It is subsequently desirable for the integration procedure to retain these “known interesting” aspects of each dataset in the merged dataset. We can encourage this outcome by using the marker genes within each dataset as our selected feature set for `fastMNN()` and related methods. This focuses on the relevant heterogeneity and represents a semi-supervised approach that is a natural extension of the strategy described in the feature selection section.
+
+We identify the top marker genes from pairwise Wilcoxon ranked sum tests between every pair of clusters within each batch, analogous to the method used by [SingleR](https://www.bioconductor.org/packages/release/bioc/html/SingleR.html). In this case, we use the top 10 marker genes but any value can be used depending on the acceptable trade-off between signal and noise (and speed). We then take the union across all comparisons in all batches and use that in place of our HVG set in `fastMNN()`.
+
+```{r consis_comp_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+# Recall that groups for marker detection
+# are automatically defined from 'colLabels()'. 
+markerList <- lapply(rescaled, function(x){
+  y <- pairwiseWilcox(x, direction="up")
+  getTopMarkers(y[[1]], y[[2]], n=10) %>% unlist %>% unlist
+  })
+marker.set <- unique(unlist(markerList))
+#length(marker.set) # getting the total number of genes selected in this manner.
+```
+
+The total number of genes selected in this manner is: `r #length(marker.set)`.
+
+```{r consis_fastmnn_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+set.seed(1000110)
+mnn.out2 <- fastMNN(rescaled,
+                    subset.row=marker.set,
+                    BSPARAM=BiocSingular::RandomParam(deferred=TRUE))
+mnn.out2$SampleGroup <- uncorrected$SampleGroup # cell order is maintained by scran functions
+
+# compute t-SNE:
+mnn.out2 <- runTSNE(mnn.out2, dimred="corrected")
+```
+
+We can also visualize the corrected coordinates using a t-SNE plot:
+
+```{r consis_plotTsne_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+plotTSNE(mnn.out2, colour_by="batch", shape_by="SampleGroup")
+```
+
+```{r consis_plotTsneBySampleType_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7, eval=F}
+plotTSNE(mnn.out2, colour_by="SampleGroup") +
+	facet_wrap(~colData(mnn.out2)$SampleGroup, ncol=2)
+```
+
+```{r consis_plotTsneByBatch_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=7, fig.width=7, eval=F}
+plotTSNE(mnn.out2, colour_by="batch", shape_by="SampleGroup") +
+	facet_wrap(~colData(mnn.out2)$batch, ncol=3)
+```
+
+A quick inspection indicates that the original within-batch structure is indeed preserved in the corrected data. This highlights the utility of a marker-based feature set for integrating datasets that have already been characterized separately in a manner that preserves existing interpretations of each dataset. We note that some within-batch clusters have merged, most likely due to the lack of robust separation in the first place, though this may also be treated as a diagnostic on the appropriateness of the integration depending on the context.
+
+```{r consis_plotTsneCluBySample_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+plotList <- vector(mode = "list", length = length(splVec))
+for (x in 1:length(splVec)) {
+  plotList[[x]] <- plotTSNE(mnn.out2[,mnn.out2$batch==splVec[x]],
+                              colour_by=I(colLabels(rescaled[[x]]))) +
+                  ggtitle(splVec[x])
+}
+gridExtra::grid.arrange(grobs = plotList,
+      ncol=3
+)
+```
+
+```{r consis_uncorr_findMarkers_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+m.out <- findMarkers(uncorrected,
+                     clusters.mnn,
+                     block=uncorrected$batch,
+                     direction="up",
+                     lfc=1,
+                     row.data=rowData(uncorrected)[,c("ensembl_gene_id","Symbol"),drop=FALSE])
+
+#lapply(m.out, function(x){head(x[,2:6])})
+
+tl1 <- lapply(m.out, function(x){x[x$Symbol=="CD3D" & x$Top <= 50 & x$FDR < 0.10,2:6]}) # T-cell
+tl2 <- lapply(m.out, function(x){x[x$Symbol=="CD69" & x$Top <= 50 & x$FDR < 0.20,2:6]}) # activation
+
+tb1 <- unlist(lapply(tl1, nrow)) > 0
+tb2 <- unlist(lapply(tl2, nrow)) > 0
+
+cluToGet <- unique(c(which(tb1), which(tb2)))[1] # 3 # 19 # 4
+demo <- m.out[[cluToGet]]
+#as.data.frame(demo[1:20,c("Symbol", "Top", "p.value", "FDR", "summary.logFC")]) 
+```
+
+Expression level for the top gene, `r rownames(demo)[1]` on violin plots:
+
+```{r consis_uncorr_topGene_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+geneEnsId <- rownames(demo)[1]
+plotExpression(uncorrected,
+               x=I(factor(clusters.mnn)),
+               features=geneEnsId, colour_by="batch") +
+  facet_wrap(~colour_by) +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+  ggtitle(sprintf("%s %s",
+          geneEnsId,
+          rowData(uncorrected)[geneEnsId,"Symbol"])
+          )
+```
+
+Expression level for the top gene, `r rownames(demo)[1]` on t-SNE plot:
+
+**Not Encouraging consistency** with marker genes
+
+```{r consis_uncorr_tsneWoEncour_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7, eval=F}
+genex <- rownames(demo)[1]
+genex <- demo %>% data.frame %>%
+  filter(!str_detect(Symbol, "^RP")) %>%
+  pull(ensembl_gene_id) %>% head(1)
+p <- plotTSNE(mnn.out, colour_by = genex, by_exprs_values="reconstructed")
+p <- p + ggtitle(
+			paste("cluster", cluToGet, genex,
+			rowData(uncorrected)[genex,"Symbol"])
+		)
+#print(p)
+p1 <- p
+p2 <- p + facet_wrap(~colData(mnn.out)$batch)
+gridExtra::grid.arrange(p1 + theme(legend.position="bottom"),
+                        p2 + theme(legend.position="bottom"),
+                        ncol=2)
+```
+
+**Encouraging consistency** with marker genes
+
+```{r consis_uncorr_tsneWiEncour_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7, eval=F}
+#genex <- rownames(demo)[1]
+p <- plotTSNE(mnn.out2, colour_by = genex, by_exprs_values="reconstructed")
+p <- p + ggtitle(
+			paste("cluster", cluToGet, genex,
+			rowData(uncorrected)[genex,"Symbol"])
+		)
+#print(p)
+p1 <- p
+p2 <- p + facet_wrap(~colData(mnn.out2)$batch)
+gridExtra::grid.arrange(p1 + theme(legend.position="bottom"),
+                        p2 + theme(legend.position="bottom"),
+                        ncol=2)
+```
+
+### Identify clusters with PBMMC cells
+
+<!-- Mind clustering now comes after data set integration
+so maybe have the session in a separate file
+or point to the clustering chapter -->
+
+Cluster size and cell contribution by sample type, with clusters sorted by size:
+
+```{r idPbmmcClu_barPlotDescSize_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7, eval=F}
+mnn.out$SampleGroup <- uncorrected$SampleGroup # cell order is maintained by scran functions
+tmpMat <- data.frame("clusters"=clusters.mnn, "batch"=mnn.out$SampleGroup)
+tmpMatTab <- table(tmpMat)
+sortVecNames <- tmpMatTab %>% rowSums %>% sort(decreasing=TRUE) %>% names
+tmpMat$clusters <- factor(tmpMat$clusters, levels=sortVecNames)
+tmpMatTab <- table(tmpMat)
+tmpMatDf <- tmpMatTab[sortVecNames,] %>% data.frame()
+p1 <- ggplot(data=tmpMatDf, aes(x=clusters,y=Freq, fill=batch)) +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+	geom_col()
+p2 <- ggplot(data=tmpMat, aes(x=clusters, fill=batch)) +
+  geom_bar(position = "fill") +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+  scale_y_continuous(labels = scales::percent)
+
+gridExtra::grid.arrange(p1, p2)
+```
+
+Cluster size and cell contribution by sample type, with clusters sorted by
+decreasing proportion of PBMMC:
+
+```{r idPbmmcClu_barPlotDescPropPbmmc_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+tmpMat <- data.frame("clusters"=clusters.mnn,
+                     "batch"=mnn.out$SampleGroup,
+                     "SampleName"=mnn.out$batch
+                     )
+sortVecNames <- round(tmpMatTab/rowSums(tmpMatTab),2) %>%
+  as.data.frame() %>%
+  filter(batch=="PBMMC") %>%
+  arrange(desc(Freq)) %>%
+  pull(clusters)
+tmpMat$clusters <- factor(tmpMat$clusters, levels=sortVecNames)
+tmpMatTab <- table("clusters"=tmpMat$clusters, "batch"=tmpMat$batch)
+#tmpMatDf <- tmpMatTab[sortVecNames,] %>% data.frame()
+tmpMatDf <- tmpMatTab[,] %>% data.frame()
+p1 <- ggplot(data=tmpMatDf, aes(x=clusters,y=Freq, fill=batch)) +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+	geom_col()
+
+p2 <- ggplot(data=tmpMat, aes(x=clusters, fill=batch)) +
+  geom_bar(position = "fill") +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+  scale_y_continuous(labels = scales::percent)
+#gridExtra::grid.arrange(p1, p2)
+
+p3 <- ggplot(data=tmpMat, aes(x=clusters, fill=SampleName)) +
+  geom_bar(position = "fill") +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) 
+
+p4 <- p3 + scale_y_continuous(labels = scales::percent)
+
+p1 <- p1 + theme(legend.text = element_text(size = 5))
+p2 <- p2 + theme(legend.text = element_text(size = 5))
+p3 <- p3 + theme(legend.text = element_text(size = 5)) + facet_wrap(~tmpMat$batch)
+p4 <- p4 + theme(legend.text = element_text(size = 5))
+#gridExtra::grid.arrange(p1, p2, p3)
+gridExtra::grid.arrange(p1, p2, p4, p3, ncol=1)
+rm(p1, p2, p3, p4)
+```
+
+<!-- Split by sample type: -->
+
+```{r idPbmmcClu_contingTabCluByBatch_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+tab.mnn <- table(Cluster=clusters.mnn,
+                 Batch=as.character(mnn.out$batch))
+                 #Batch=as.character(mnn.out$SampleGroup))
+#tab.mnn <- as.data.frame(tab.mnn, stringsAsFactors=FALSE)
+##tab.mnn
+
+# Using a large pseudo.count to avoid unnecessarily
+# large variances when the counts are low.
+norm <- normalizeCounts(tab.mnn, pseudo_count=10)
+
+normNoLog <- normalizeCounts(tab.mnn, pseudo_count=10, log=FALSE)
+
+sortVecNames <- rowSums(normNoLog) %>% round(2) %>%
+  sort(decreasing=TRUE) %>%
+  names
+```
+
+```{r idPbmmcClu_barPlotDescPropPbmmcSampleName_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
+#norm2 <- normNoLog %>% data.frame() %>%
+  #tibble::rownames_to_column("clusters") %>%
+  #tidyr::pivot_longer(!clusters, names_to="SampleName", values_to="Freq")
+  
+norm2 <- normNoLog %>% data.frame() %>%
+  rename(clusters = Cluster) %>%
+  rename(SampleName = Batch) 
+  
+norm2 <- norm2 %>%
+  left_join(unique(cb_sampleSheet[,c("SampleName", "SampleGroup")]),
+            by="SampleName")
+
+norm2$clusters <- factor(norm2$clusters, levels=sortVecNames)
+#norm2 <- norm2 %>% as.data.frame()
+
+# fill by sample type
+p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=SampleGroup)) +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+	geom_col()
+
+# fill by sample name
+p2 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=SampleName)) +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+	geom_col()
+
+# split by sample type
+p3 <- p2 + facet_wrap(~SampleGroup)
+
+# show
+gridExtra::grid.arrange(p1, p2, p3)
+rm(p1, p2, p3)
+```
+
+<!-- Summarise by sample type: -->
+
+```{r idPbmmcClu_contingTabCluByType_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+tab.mnn <- table(Cluster=clusters.mnn,
+		 Batch=as.character(mnn.out$SampleGroup))
+##tab.mnn
+
+# Using a large pseudo.count to avoid unnecessarily
+# large variances when the counts are low.
+#norm <- normalizeCounts(tab.mnn, pseudo_count=10)
+
+normNoLog <- normalizeCounts(tab.mnn, pseudo_count=10, log=FALSE)
+normNoLog <- normNoLog %>% as.data.frame.matrix()
+
+# sort by PBMMC proportion:
+normNoLog <- normNoLog %>% mutate(sum=rowSums(.))
+normNoLog <- normNoLog %>% mutate(prop=PBMMC/sum)
+
+sortVecNames <- normNoLog %>%
+  tibble::rownames_to_column("clusters") %>% 
+  arrange(desc(prop)) %>%
+  pull(clusters)
+```
+
+```{r idPbmmcClu_barPlotDescPropPbmmcSampleType_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=FALSE}
+norm2 <- normNoLog %>%
+  data.frame() %>%
+  select(-sum, -prop) %>%
+  tibble::rownames_to_column("clusters") %>% 
+  tidyr::pivot_longer(!clusters, names_to="SampleGroup", values_to="Freq")
+
+norm2$clusters <- factor(norm2$clusters, levels=sortVecNames)
+
+p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=SampleGroup)) +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+	geom_col()
+p2 <- p1 + facet_wrap(~SampleGroup)
+
+# show
+gridExtra::grid.arrange(p1, p2)
+rm(p1, p2)
+```
+
+Have threshold for proportion of PBMMC cells, say 50%, and keep clusters with PBMMC proportion below that threshold.
+
+```{r idPbmmcClu_barPlotPropPbmmcThd050_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7, eval=F}
+normNoLog$propLt090 <- normNoLog$prop < 0.9
+normNoLog$propLt080 <- normNoLog$prop < 0.8
+normNoLog$propLt050 <- normNoLog$prop < 0.5
+
+norm2 <- normNoLog %>%
+  data.frame() %>%
+  select(-sum, -prop) %>%
+  tibble::rownames_to_column("clusters") %>% 
+  #tidyr::pivot_longer(!c(clusters,propLt090), names_to="SampleGroup", values_to="Freq")
+  #tidyr::pivot_longer(!c(clusters,propLt090,propLt080), names_to="SampleGroup", values_to="Freq")
+  #tidyr::pivot_longer(!c(clusters,propLt090,propLt080,propLt050), names_to="SampleGroup", values_to="Freq")
+  tidyr::pivot_longer(!c(clusters,
+                         grep("propLt", colnames(normNoLog), value=TRUE)
+                         ),
+                      names_to="SampleGroup",
+                      values_to="Freq")
+
+norm2$clusters <- factor(norm2$clusters, levels=sortVecNames)
+
+p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=SampleGroup)) +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+	geom_col()
+#p + facet_wrap(~propLt090)
+#p + facet_wrap(~propLt080)
+p2 <- p1 + facet_wrap(~propLt050)
+
+# show
+gridExtra::grid.arrange(p1, p2)
+rm(p1, p2)
+```
+
+Corresponding TSNE, with cluster and expression level of top gene:
+
+```{r idPbmmcClu_barPlotPropPbmmcTsneThd050_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=7, fig.width=7, eval=F}
+propLtDf <- norm2 %>% select(clusters,propLt050) %>% unique()
+propLtDf$cluster <- paste0("c", propLtDf$clusters)
+  
+colData(mnn.out) <- colData(mnn.out) %>%
+  data.frame() %>%
+  left_join(propLtDf[,c("cluster","propLt050")], by="cluster") %>%
+  DataFrame()
+  
+# cluster:
+p <- plotTSNE(mnn.out, colour_by = "cluster", by_exprs_values="reconstructed")
+p <- p + ggtitle("clusters")
+p1 <- p + facet_wrap(~mnn.out$propLt050) +
+  theme(legend.position='bottom')
+
+# top gene for some cluster:
+#genex <- rownames(demo)[1]
+p <- plotTSNE(mnn.out, colour_by = genex, by_exprs_values="reconstructed")
+p <- p + ggtitle(
+			paste("cluster", cluToGet, genex,
+			rowData(uncorrected)[genex,"Symbol"])
+		)
+#print(p)
+p2 <- p + facet_wrap(~mnn.out$propLt050) +
+  theme(legend.position='bottom')
+
+# show
+gridExtra::grid.arrange(p1, p2)
+rm(p, p1, p2)
+```
+
+<!-- (OK, but clusters with large number of cells of the non-PBMMC type are also excluded.) -->
+
+Same as above but with propLt080: keep clusters with PBMMC proportion lower than 80%:
+
+```{r idPbmmcClu_barPlotPropPbmmcThd080_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7, eval=F}
+
+propLtDf <- norm2 %>% select(clusters,propLt080) %>% unique()
+propLtDf$cluster <- paste0("c", propLtDf$clusters)
+propLtDf$clusters <- NULL
+
+colData(mnn.out) <- colData(mnn.out) %>%
+  data.frame() %>%
+  left_join(propLtDf, by="cluster") %>%
+  DataFrame()
+
+p1 <- ggplot(data=norm2, aes(x=clusters,y=Freq, fill=SampleGroup)) +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+	geom_col()
+#p + facet_wrap(~propLt090)
+#p + facet_wrap(~propLt080)
+p2 <- p1 + facet_wrap(~propLt080)
+
+# show
+gridExtra::grid.arrange(p1, p2)
+rm(p1, p2)
+```
+
+```{r idPbmmcClu_barPlotPropPbmmcTsneThd080_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=7, fig.width=7, eval=F}
+# cluster:
+p <- plotTSNE(mnn.out, colour_by = "cluster", by_exprs_values="reconstructed")
+p <- p + ggtitle("clusters")
+p1 <- p + facet_wrap(~mnn.out$propLt080) +
+  theme(legend.position='bottom')
+
+# top gene for some cluster:
+genex <- rownames(demo)[1]
+p <- plotTSNE(mnn.out, colour_by = genex, by_exprs_values="reconstructed")
+p <- p + ggtitle(
+			paste("cluster", cluToGet, genex,
+			rowData(uncorrected)[genex,"Symbol"])
+		)
+#print(p)
+p2 <- p + facet_wrap(~mnn.out$propLt080) +
+  theme(legend.position='bottom')
+
+# show
+gridExtra::grid.arrange(p1, p2)
+rm(p, p1, p2)
+```
+
+Check expression of cell type marker genes, for PBMMC proportion threshold of 50%:
+
+```{r idPbmmcClu_barPlotPropPbmmcTsneThd050CellTypeMarkers_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7, eval=FALSE}
+for (genex in ensToShow)
+{
+	p <- plotTSNE(mnn.out, colour_by = genex, by_exprs_values="reconstructed") +
+		ggtitle(paste(rowData(uncorrected)[genex,"Symbol"], " aka", genex)) +
+		facet_wrap(~mnn.out$propLt050)
+	print(p)
+}
+```
+
+<!-- large cluster with moderate PBMMC proportion -->
+
+Some clusters with a high proportion of PBMMC cells also comprise a large number
+of cancer cells. To select clusters to keep, we could use the following inclusion
+criteria:
+
+* proportion of PBMMC cells in cluster is lower than the threshold for the
+  proportion of PBMMC cells in a cluster, eg 50%
+* proportion of cancer cells in cluster higher than 5% of cells of that sample
+  type
+
+The bar plots below show the clusters ordered by decreasing proportion of PBMMC
+and also split by selection outcome (where 'TRUE' means inclusion).
+
+```{r idPbmmcClu_select_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=4, fig.width=7, eval=F}
+normNoLog <- normNoLog %>% tibble::rownames_to_column("cluster")
+normNoLog$cluster <- paste0("c", normNoLog$cluster)
+
+otherSplType <- setdiff(splSetVec, "PBMMC") # ok for pairs of sample types
+#thdSize <- sum(normNoLog[,otherSplType])*0.02
+thdSize <- sum(normNoLog[,otherSplType])*0.05
+thdPropPbmmc <- 0.5
+
+#propLtDf <- norm2 %>% select(clusters,propLt050) %>% unique()
+#propLtDf$cluster <- paste0("c", propLtDf$clusters)
+
+propLtDf <- normNoLog %>%
+  filter(prop < thdPropPbmmc | !!sym(otherSplType) > thdSize) # ok for pairs of sample types
+
+normNoLog <- normNoLog %>%
+  mutate(tmpCluBool= ifelse((prop < thdPropPbmmc | !!sym(otherSplType) > thdSize), TRUE, FALSE))
+
+colData(mnn.out) <- colData(mnn.out) %>%
+  data.frame() %>%
+  #select(-tmpCluBool) %>%
+  left_join(normNoLog[,c("cluster", "tmpCluBool")], by="cluster") %>%
+  DataFrame()
+
+norm2 <- normNoLog %>%
+  data.frame() %>%
+  select(-sum, -prop) %>%
+  select(-c(grep("propOut", colnames(normNoLog), value=TRUE))) %>%
+  select(-c(grep("propLt", colnames(normNoLog), value=TRUE))) %>%
+  #tibble::rownames_to_column("clusters") %>% 
+  tidyr::pivot_longer(!c(cluster,
+                         grep("tmpCluBool", colnames(normNoLog), value=TRUE)
+                         ),
+                      names_to="SampleGroup",
+                      values_to="Freq")
+
+norm2$cluster <- factor(norm2$cluster,
+                        levels=paste0("c", sortVecNames))
+
+p <- ggplot(data=norm2, aes(x=cluster,y=Freq, fill=SampleGroup)) +
+	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
+	geom_col()
+gridExtra::grid.arrange(p, p + facet_wrap(norm2$tmpCluBool))
+rm(p)
+```
+
+```{r idPbmmcClu_barPlotPropPbmmcTsneSelec_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, fig.height=7, fig.width=7, eval=FALSE}
+# cluster:
+p <- plotTSNE(mnn.out, colour_by = "cluster", by_exprs_values="reconstructed")
+p <- p + ggtitle("clusters")
+p1 <- p + facet_wrap(~mnn.out$tmpCluBool) +
+  theme(legend.position='bottom')
+
+# show
+p1
+rm(p, p1)
+#mnn.out$tmpCluBool <- NULL
+```
+
+```{r idPbmmcClu_normNoLogSaveRds_dsi{{setSuf}}_PBMMC_ETV6-RUNX1, eval=F}
+splSetToGet2 <- gsub(",", "_", splSetToGet)
+# save object?
+fn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_dsi_%s_normNoLog.Rds",
+              projDir,
+              outDirBit,
+              setName,
+              setSuf,
+              splSetToGet2) # 'dsi' for data set integration
+saveRDS(normNoLog, file=fn)
+```
+
+## Session information
+
+```{r sessionInfo_dsi{{setSuf}}_PBMMC_ETV6-RUNX1}
+sessionInfo()
+```
+
+
