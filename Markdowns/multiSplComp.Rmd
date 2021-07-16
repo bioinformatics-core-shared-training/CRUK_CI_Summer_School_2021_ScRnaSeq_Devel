@@ -19,8 +19,8 @@ output:
 params:
   projDir: "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
   dirRel: ".."
-  inpDirBit: "AnaWiSce/Ana1"
-  outDirBit: "AnaWiSce/Ana1"
+  inpDirBit: "CourseMaterials"
+  outDirBit: "CourseMaterials"
   bookType: "mk"
   cacheBool: FALSE  
   splSetToGet: "PBMMC,ETV6-RUNX1"
@@ -37,7 +37,8 @@ params:
  
 ```{r}
 params2 <- list(
-  "projDir" = "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020",
+  #"projDir" = "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020",
+  "projDir" = "..",
   "dirRel" = "..",
   "inpDirBit" = "AnaWiSce/AnaCourse1",
   "outDirBit" = "AnaWiSce/AnaCourse1",
@@ -93,10 +94,9 @@ set.seed(123) # for reproducibility
 ```
 
 ```{r, include=FALSE, warning=FALSE}
-suppressMessages(library(ggplot2))
 suppressMessages(library(scater))
 suppressMessages(library(scran))
-suppressMessages(library(dplyr))
+suppressMessages(library(tidyverse))
 suppressMessages(library(DT))
 library(Cairo)
 fontsize <- theme(axis.text=element_text(size=12), axis.title=element_text(size=16))
@@ -122,16 +122,11 @@ The differential analyses in this chapter will be predicated on many of the pre-
 Load the SCE object:
 
 ```{r}
-#setName <- "caron"
 # Read object in:
-##setSuf <- "_1kCellPerSpl"
-##tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_clustered.Rds", projDir, outDirBit, setName, setSuf)
-
-#setSuf <- "_1kCps"
-##tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_Fmwbl.Rds",
-##		 projDir, outDirBit, setName, setSuf)
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_dsi_%s_Fmwbl.Rds",
-		 projDir, outDirBit, setName, setSuf, splSetToGet2)
+##tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_dsi_%s_Fmwbl.Rds",
+##		 projDir, outDirBit, setName, setSuf, splSetToGet2)
+##tmpFn <- str_glue("{projDir}/{outDirBit}/Robjects/{setName}_postDeconv{setSuf}{dsiSuf}_{splSetToGet2}_Fmwbl.Rds")
+tmpFn <- "../CourseMaterials/Robjects/DataIntergration_mnn.out.rds"
 print(tmpFn)
 
 if(!file.exists(tmpFn))
@@ -147,7 +142,7 @@ A brief inspection of the results shows clusters contain varying contributions f
 ```{r}
 library(scater)
 colLabels(sce) <- sce$clusters.mnn
-tab <- table(colLabels(sce), sce$splType)
+tab <- table(colLabels(sce), sce$SampleGroup)
 tab
 ```
 
