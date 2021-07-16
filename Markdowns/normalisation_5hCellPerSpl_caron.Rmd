@@ -111,10 +111,166 @@ library(tidyverse)
 library(BiocSingular)
 library(BiocParallel)
 library(glue)
+library(patchwork)
 
 # prepare 'cluster' for multicore processing
 # use 7 workers
 bpp <- MulticoreParam(7)
+```
+
+<!-- calc_cell_RLE function - positive median -->
+
+```{r, eval=FALSE}
+# calculate RLE for gene whose median is positive.
+# ok for non-sparse matrix eg smart-seq
+# but not sparse 10X
+
+calc_cell_RLE <- function (expr_mat, spikes = NULL) 
+{
+  # define RLE_gene function:
+  # compute RLE for a given gene
+  # if median expression for that gene is positive
+  # then compute RLE: log(count in cell / median count across cells)/log2
+    RLE_gene <- function(x) {
+      #print(length(x))
+      #print(median(unlist(x)))
+        if (median(unlist(x)) > 0) {
+            log((x + 1)/(median(unlist(x)) + 1))/log(2)
+        }
+        else {
+            rep(NA, times = length(x))
+        }
+    }
+    if (!is.null(spikes)) {
+        RLE_matrix <- t(apply(expr_mat[-spikes, ], 1, RLE_gene))
+    }
+    else {
+        RLE_matrix <- t(apply(expr_mat, 1, RLE_gene))
+    }
+    return(RLE_matrix)
+    cell_RLE <- apply(RLE_matrix, 2, median, na.rm = T)
+    #print(cell_RLE)
+    return(cell_RLE)
+}
+
+# compare to plotRLE
+#    features_meds <- rowMedians(exprs_mat)
+#    med_devs <- exprs_mat - features_meds
+```
+
+<!-- plot functions -->
+
+```{r}
+# prepare RLE matrix
+prepRleMat <- function(rleMat, sce = sce) {
+	# count NAs for each cell
+	nbNonNaPerCell <- colSums(!is.na(rleMat))
+	# derive long table for plotting
+	dd <- rleMat %>%
+	  data.frame() %>%
+	  tibble::rownames_to_column("geneId") %>%
+	  pivot_longer(!geneId, names_to = "Barcode", values_to = "rle")
+	# have temp copy of cell meta data to use in plot
+	colDataTmp <- data.frame(
+	  colData(sce)[,c("Barcode", "SampleGroup", "SampleName")]
+	  )
+	colDataTmp$Barcode <- gsub("-", ".", colDataTmp$Barcode)
+	colDataTmp$nbNonNaPerCell <- nbNonNaPerCell
+	# merge long RLE matrix with cell meta data:
+	dd2 <- dd %>%
+	  left_join(colDataTmp, by="Barcode")
+	# return
+	return(dd2)
+}
+
+# function to plot RLE
+myRlePlot <- function(ddToShow, bcToGet=NULL, sortBool=TRUE, qCutBool = TRUE) {
+	# Have function for code chunk above
+  
+  # filter barcode if necessary
+	if(!is.null(bcToGet)) {
+	  ddToShow <- ddToShow %>% dplyr::filter(Barcode %in% bcToGet)
+	}
+
+  # filter gene if necessary
+	nbNonNaPerGene <- rowSums(!is.na(deconvRleMat))
+	tmpDf <- ddToShow %>%
+	  group_by(geneId) %>%
+	  summarise(nbNonNaPerGene=sum(!is.na(rle))) %>%
+	  #deframe()
+	  dplyr::select(geneId, nbNonNaPerGene)
+
+	ddToShow <- ddToShow %>%
+		  left_join(tmpDf, by="geneId")
+
+	  if(qCutBool) {
+	qCut <- quantile(tmpDf$nbNonNaPerGene, prob=0.95)
+	  ddToShow <- ddToShow %>% dplyr::filter(nbNonNaPerGene > qCut) 
+	}
+  # compute median RLE for each cell across genes
+	ddToShowMedianRle <- ddToShow %>%
+	  group_by(SampleName, Barcode) %>%
+	  summarise(medianRle=median(rle, na.rm = TRUE))
+
+	# group cell by sampleName
+	ddToShowMedianRleSorted <- ddToShowMedianRle %>%
+	  group_by(SampleName) %>%
+	  arrange(Barcode, .by_group = TRUE)
+  
+	# sort cell median RLE in increasing order
+	if(sortBool)
+	{
+	  ddToShowMedianRleSorted <- ddToShowMedianRle %>%
+	    group_by(SampleName) %>%
+	    arrange(medianRle, .by_group = TRUE)
+	}
+	ddToShowSort <- ddToShowMedianRleSorted$Barcode
+
+	# set levels
+ 	ddToShow$Barcode <- factor(ddToShow$Barcode,
+                           levels=ddToShowSort)
+
+ 	# remove NA RLEs
+	ddToShow <- ddToShow %>%
+	  dplyr::filter(!is.na(rle))
+
+	# make plot:	
+  	if(!sortBool) {
+		p <- ggplot(ddToShow, aes(x=Barcode, y=rle, col=SampleName))
+	} else {
+	p <- ggplot(ddToShow, aes(x=Barcode, y=rle,
+				  #shape=SampleName,
+				  col=nbNonNaPerCell)) +
+	    		scale_colour_gradient(low="blue", high="yellow")
+	}
+	p2 <- p +
+	  stat_summary(geom = "pointrange", 
+	        width = 0.20, fatten = 0,
+	        mapping = aes(group = SampleName),
+	        fun.data = function(x) {
+	            c(y = median(x),
+	              ymin = unname(quantile(x,probs=0.25)),
+	              ymax = unname(quantile(x,probs=0.75))
+	              )
+	        }) +
+	  stat_summary(geom = "crossbar", 
+	        width = 0.20, fatten = 0,
+	        color = "black",
+	        fun.data = function(x) {
+	            c(y = median(x),
+	              ymin = median(x),
+	              ymax = median(x)
+	              )
+	        }) +
+	  ylab("Relative log expression") +
+	  xlab("Sample") +
+	  theme_classic() +
+	  theme(axis.text.x = element_blank(), 
+	        axis.ticks.x = element_blank(),
+	        axis.line.x = element_blank()) +
+	  geom_hline(yintercept = 0)
+	return(p2)
+}
 ```
 
 ## Load object
@@ -704,7 +860,7 @@ sctransform::plot_model(
 <!-- exercise ? -->
 
 ```{r, eval=FALSE}
-otherGene = "BLA"
+otherGene <- "BLA"
 
 rowData(sce) %>%
 	as.data.frame %>%
@@ -713,7 +869,7 @@ rowData(sce) %>%
 ensId <- rowData(sce) %>%
 	as.data.frame %>%
 	filter(Symbol %in% c(otherGene)) %>%
-  pull("ID")
+	pull("ID")
 
 sctransform::plot_model(
   vst_out,
@@ -826,11 +982,13 @@ You will now inspect the mean-variance relationship and apply SCTransform to tha
 ## Effectiveness
 
 
+
 ```{r}
-# toy data set to check plotRLE.
+# https://github.com/NBISweden/excelerate-scRNAseq/blob/master/session-normalization/Normalization_with_answers.md
+# setwd("~/scrna-seq2019/day1/2-normalization/")
 
 system("curl -O http://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_filtered_feature_bc_matrix.h5")
-pbmc.mat <- Seurat::Read10X_h5("pbmc_1k_v3_filtered_feature_bc_matrix.h5") # needs hdf5r
+pbmc.mat <- Seurat::Read10X_h5("pbmc_1k_v3_filtered_feature_bc_matrix.h5")  # needs hdf5r
 pbmc.sce <- SingleCellExperiment(assays = list(counts = as.matrix(pbmc.mat)))
 pbmc.sce <- pbmc.sce[rowSums(counts(pbmc.sce) > 0) > 2,]
 # update cell QC metrics
@@ -878,13 +1036,13 @@ pbmc.sce <- computeSumFactors(pbmc.sce, clusters = qclust)
 summary(sizeFactors(pbmc.sce))
 pbmc.sce <- logNormCounts(pbmc.sce)
 
-p1 <- plotRLE(pbmc.sce, exprs_values = "logcounts", exprs_logged = FALSE, 
+p1 <- plotRLE(pbmc.sce, exprs_values = "logcounts", exprs_logged = FALSE,
         style = "full")
-p1 <- plotRLE(pbmc.sce, exprs_values = "logcounts", exprs_logged = FALSE, 
+p1 <- plotRLE(pbmc.sce, exprs_values = "logcounts", exprs_logged = FALSE,
         outlier.size = 0.1,
         outlier.alpha = 0.1,
         style = "full")
-p2 <- plotRLE(pbmc.sce, exprs_values = "logcounts", exprs_logged = FALSE, 
+p2 <- plotRLE(pbmc.sce, exprs_values = "logcounts", exprs_logged = FALSE,
         style = "minimal")
 p1
 p1/p2
@@ -911,17 +1069,10 @@ p2.deconv.b <- myRlePlot(dd2.deconv, sortBool=TRUE)
 #p2.deconv.b
 
 p2.deconv/p2.deconv.b
-
-```
-
-```{r}
-p1/p2
 ```
 
 
 ### log raw counts
-
-
 
 ```{r comp_pca_logRaw_Caron_5hCellPerSpl}
 typeNorm <- "logRaw"
@@ -944,6 +1095,8 @@ sceRawPca <- runPCA(
 )
 ```
 
+#### PCA
+
 PCA plot for the '`r typeNorm`' counts in the `r setName` set.
 
 ```{r plot_pca_logRaw_Caron_5hCellPerSpl}
@@ -957,12 +1110,12 @@ p <- plotPCA(
 p
 ```
 
-<!--
-Cell-wise RLE for the '`r typeNorm`' counts in the `r setName` set.
-Each cell is represented by a box plot showing the inter-quartile range in grey,
-wiskers colour-coded by Sample.Name and the median as a black circle. 
--->
+#### gene sparsity
 
+The plot below displays the 'empirical cumulative density function' (ECDF)
+of the number of cells genes are detected in.
+Its curve shows for any given number along the x-axis the percent of data points
+(here cells) that are below that value.
 
 ```{r}
 # for gene, get number of cells where it is detected
@@ -975,12 +1128,38 @@ hist(nbCellPerGene, n=50)
 ggplot(as.data.frame(nbCellPerGene), aes(nbCellPerGene)) + stat_ecdf(geom = "step")
 ```
 
+#### RLE plot
+
+<!--
+https://github.com/NBISweden/excelerate-scRNAseq/blob/master/session-normalization/Normalization_with_answers.md
+
+plotRLE for raw, lognorm, scran, 
+-->
+
+
+The relative log expression (RLE) plot shows for each cell a boxplot of the
+deviations in expression of genes from their median count.   
+
+<!--
+Cell-wise RLE for the '`r typeNorm`' counts in the `r setName` set.
+Each cell is represented by a box plot showing the inter-quartile range in grey,
+wiskers colour-coded by Sample.Name and the median as a black circle. 
+-->
+
+<!--
+Remember effectiveness is described in the Hemberg course for a SMART-seq data set,
+for genes whose median count is above 0.
+Here the 10X data is much sparser and only a very small fraction of genes have
+a positive median. So RLE is computed for each gene using these positive counts.
+-->
+
+
 ```{r}
 # compute RLE, with positive counts
-# return matrix
+# return matrix
 # log2 scale
- 
-calc_cell_RLE2 <- function(expr_mat, logVal = "raw")
+
+calc_cell_RLE2 <- function(expr_mat, logVal = "raw") 
 {
   # define RLE_gene function:
   # compute RLE for a given gene
@@ -998,36 +1177,54 @@ calc_cell_RLE2 <- function(expr_mat, logVal = "raw")
       #print(length(posCountInd))
       #print(posCountInd[1:3])
       y <- x[posCountInd]
+      medy <- median(y)
       #print(y[1:3])
       #print(length(y))
       #print(median(y))
       
-      z <- lapply(x, function(i) {
-        #if(i==0) {0}
-        if(i==0) {NA}
-        else {
-          log((i + 1)/(median(y) + 1))/log(2)
-        }
-      }
-      )
+#      z <- lapply(x, function(i) {
+#        #if(i==0) {0}
+#        if(i==0) {NA}
+#        else {
+#          log((i + 1)/(medy + 1))/log(2)
+#        }
+#      }
+#      )
+
+      z <- rep(NA, length(x))
+      posCountInd <- which(x > 0)
+      y <- x[posCountInd]
+      z[posCountInd] <- lapply(y,
+			       function(i) { log((i + 1)/(medy + 1))/log(2) }
+			       )
       z <- unlist(z)
       z
     }
 
     RLE_gene_log <- function(x) {
       x <- unlist(x)
+      z <- rep(NA, length(x))
       # get non-null values to compute median on:
       posCountInd <- which(x > 0)
       y <- x[posCountInd]
       # if log2 scale already
 	#print(x[posCountInd][1:3])
-	x[posCountInd] <- x[posCountInd] - median(y)
+	z[posCountInd] <- y - median(y)
 	#print(x[posCountInd][1:3])
-      x
+      z
     }
+
+        RLE_gene_sct <- function(x) {
+      x <- unlist(x)
+	z <- x - median(x)
+      z
+    }
+
 
     if (logVal == "raw") {
 	RLE_matrix <- t(apply(expr_mat, 1, RLE_gene_raw))
+    } else if (logVal == "sct") {
+	RLE_matrix <- t(apply(expr_mat, 1, RLE_gene_sct))
     } else {
 	RLE_matrix <- t(apply(expr_mat, 1, RLE_gene_log))
     }
@@ -1039,164 +1236,49 @@ calc_cell_RLE2 <- function(expr_mat, logVal = "raw")
 ```
 
 ```{r}
+# compute RLE with positive counts
 rawRleMat2 <- calc_cell_RLE2(counts(sce))
 colnames(rawRleMat2) <- sce$Barcode
 rawRleMat2[1:5,1:3]
 ```
 
-```{r}
+```{r, eval=FALSE}
 rawRleMat2[,1]
 summary(rawRleMat2[,1])
 boxplot(rawRleMat2[,1:2])
 ```
 
 ```{r}
+# prepare long RLE matrix for plotting
 dd2 <- prepRleMat(rawRleMat2)
-summary(dd2$rle)
-hist(dd2$rle,n=100)
-boxplot(dd2$rle)
+#summary(dd2$rle)
+#hist(dd2$rle,n=100)
+#boxplot(dd2$rle)
 ```
 
 ```{r}
-p2 <- myRlePlot(dd2)
-p2
+# plot RLE
+# no sorting of cells on RLE
+p2.raw <- myRlePlot(dd2, sortBool=FALSE)
+p2.raw
 ```
 
 ```{r}
-p2b <- myRlePlot(dd2, sortBool=TRUE)
-p2b
+# plot RLE
+# with sorting of cells on RLE for each sample
+p2.raw.b <- myRlePlot(dd2, sortBool=TRUE)
+p2.raw.b
 ```
 
-<!-- calc_cell_RLE function -->
-
 ```{r}
-calc_cell_RLE <- function (expr_mat, spikes = NULL) 
-{
-  # define RLE_gene function:
-  # compute RLE for a given gene
-  # if median expression for that gene is positive
-  # then compute RLE: log(count in cell / median count across cells)/log2
-    RLE_gene <- function(x) {
-      #print(length(x))
-      #print(median(unlist(x)))
-        if (median(unlist(x)) > 0) {
-            log((x + 1)/(median(unlist(x)) + 1))/log(2)
-        }
-        else {
-            rep(NA, times = length(x))
-        }
-    }
-    if (!is.null(spikes)) {
-        RLE_matrix <- t(apply(expr_mat[-spikes, ], 1, RLE_gene))
-    }
-    else {
-        RLE_matrix <- t(apply(expr_mat, 1, RLE_gene))
-    }
-    return(RLE_matrix)
-    cell_RLE <- apply(RLE_matrix, 2, median, na.rm = T)
-    #print(cell_RLE)
-    return(cell_RLE)
-}
-
-# compare to plotRLE
-#    features_meds <- rowMedians(exprs_mat)
-#    med_devs <- exprs_mat - features_meds
+p2.raw/p2.raw.b
 ```
 
-<!-- plot functions -->
 
-```{r}
-# prepare RLE matrix
-prepRleMat <- function(rleMat, sce = sce) {
-	# derive long table for plotting
-	dd <- rleMat %>%
-	  data.frame() %>%
-	  tibble::rownames_to_column("geneId") %>%
-	  pivot_longer(!geneId, names_to = "Barcode", values_to = "rle")
-	# have temp copy of cell meta data to use in plot
-	colDataTmp <- data.frame(
-	  colData(sce)[,c("Barcode", "SampleGroup", "SampleName")]
-	  )
-	colDataTmp$Barcode <- gsub("-", ".", colDataTmp$Barcode)
-	# merge long RLE matrix with cell meta data:
-	dd2 <- dd %>%
-	  left_join(colDataTmp, by="Barcode")
-	# return
-	return(dd2)
-}
+<!-- rawRleMat - positive median -->
 
-# function to plot RLE
-myRlePlot <- function(ddToShow, bcToGet=NULL, sortBool=TRUE) {
-	# Have function for code chunk above
-  
-  # filter barcode if necessary
-	if(!is.null(bcToGet)) {
-	  ddToShow <- ddToShow %>% dplyr::filter(Barcode %in% bcToGet)
-	}
-
-  # compute median RLE for each cell across genes
-	ddToShowMedianRle <- ddToShow %>%
-	  group_by(SampleName, Barcode) %>%
-	  summarise(medianRle=median(rle, na.rm = TRUE))
-
-	# group cell by sampleName
-	ddToShowMedianRleSorted <- ddToShowMedianRle %>%
-	  group_by(SampleName) %>%
-	  arrange(Barcode, .by_group = TRUE)
-  
-	# sort cell median RLE in increasing order
-	if(sortBool)
-	{
-	  ddToShowMedianRleSorted <- ddToShowMedianRle %>%
-	    group_by(SampleName) %>%
-	    arrange(medianRle, .by_group = TRUE)
-	}
-	ddToShowSort <- ddToShowMedianRleSorted$Barcode
-
-	# set levels
- 	ddToShow$Barcode <- factor(ddToShow$Barcode,
-                           levels=ddToShowSort)
-
- 	# remove NA RLEs
-	ddToShow <- ddToShow %>%
-	  dplyr::filter(!is.na(rle))
-
-	# make plot:	
-	p <- ggplot(ddToShow, aes(x=Barcode, y=rle, col=SampleName))
-	p2 <- p +
-	  stat_summary(geom = "pointrange", 
-	        width = 0.20, fatten = 0,
-	        mapping = aes(group = SampleName),
-	        fun.data = function(x) {
-	            c(y = median(x),
-	              ymin = unname(quantile(x,probs=0.25)),
-	              ymax = unname(quantile(x,probs=0.75))
-	              )
-	        }) +
-	  stat_summary(geom = "crossbar", 
-	        width = 0.20, fatten = 0,
-	        color = "black",
-	        fun.data = function(x) {
-	            c(y = median(x),
-	              ymin = median(x),
-	              ymax = median(x)
-	              )
-	        }) +
-	  ylab("Relative log expression") +
-	  xlab("Sample") +
-	  theme_classic() +
-	  theme(axis.text.x = element_blank(), 
-	        axis.ticks.x = element_blank(),
-	        axis.line.x = element_blank()) +
-	  geom_hline(yintercept = 0)
-	return(p2)
-}
-```
-
-<!-- rawRleMat -->
-
-```{r}
-rawRleMat <- calc_cell_RLE(counts(sce))
+```{r, eval=FALSE}
+rawRleMat <- calc_cell_RLE(counts(sce)) # for genes with positive median
 colnames(rawRleMat) <- sce$Barcode
 
 # dev - NAs
@@ -1211,7 +1293,7 @@ cell_RLE <- apply(rawRleMat, 2, median, na.rm = T)
 cell_RLE.noNa <- apply(rawRleMat, 2, function(x) sum(!is.na(x)))
 ```
 
-```{r}
+```{r, eval=FALSE}
 #plot(cell_RLE)
 #plot(cell_RLE.noNa, cell_RLE)
 
@@ -1233,12 +1315,6 @@ p + facet_wrap(~SampleName)
 #  geom_abline(intercept = 0, slope = 0, color='red')
 ```
 
-Genes used:
-
-```{r}
-rowData(sce)[x>0,]
-```
-
 ```{r, eval=FALSE}
 #boxplot(calc_cell_RLE(counts(sce)),
 boxplot(calc_cell_RLE(counts(sce)[,1:50]),
@@ -1250,7 +1326,10 @@ boxplot(calc_cell_RLE(counts(sce)[,1:50]),
 ```
 
 
-```{r}
+```{r, eval=FALSE}
+# use base boxplot()
+# ok but already have ggplot version
+
 cellColor <- as.numeric(factor(colData(sce)$SampleName))
 #boxplot(calc_cell_RLE(counts(sce)),
 #boxplot(calc_cell_RLE(counts(sce)[,1:2000]),
@@ -1264,16 +1343,19 @@ boxplot(calc_cell_RLE(counts(sce)),
         medcol = "red",
         whisklty = 1,
         whisklwd = 0,
-        staplelwd=0,
+        staplelwd = 0,
         main = ""
         )
 abline(h=0)
 ```
 
-```{r}
-# https://gitlab.svi.edu.au/biocellgen-public/mig_2019_scrnaseq-workshop/-/blob/7932cb90e1e73975d5db3b319951e06bebbbeab3/11-exprs-norm.Rmd
+<!-- edgeR::calcNormFactors -->
 
+```{r, eval=FALSE}
 # edgeR RLE normalisation
+# ok but positive median, and base boxplot and slow
+
+# https://gitlab.svi.edu.au/biocellgen-public/mig_2019_scrnaseq-workshop/-/blob/7932cb90e1e73975d5db3b319951e06bebbbeab3/11-exprs-norm.Rmd
 
 # Calculate normalization factors to scale the raw library sizes. 
 dge <- edgeR::calcNormFactors(
@@ -1281,21 +1363,21 @@ dge <- edgeR::calcNormFactors(
   method = "RLE",
   lib.size = rep(1, ncol(sce))
   )
-class(dge)
+class(dge) # DGEList
 
 boxplot(dge$counts,
         #col = "grey50",
-        col=cellColor,
-        boxcol=cellColor,
+        col = cellColor,
+        boxcol = cellColor,
         ylab = "RLE",
-        ylim=c(-3,3),
+        ylim = c(-3,3),
         #outline = !FALSE,
         #outpch = 2,
         outline = FALSE,
         medcol = "red",
         whisklty = 1,
         whisklwd = 1,
-        staplelwd=1,
+        staplelwd = 1,
         main = ""
 )
 rm(dge)
@@ -1337,15 +1419,15 @@ boxplot(calc_cell_RLE(norm_counts(sceEdgeR)),
         main = "", ylim=c(-1,1))
 ```
 
-<!-- in-house plotRLE -->
+<!-- RLE - positive median - in-house plotRLE -->
 
-```{r}
+```{r, eval=FALSE}
 dd2.raw <- prepRleMat(rawRleMat)
 p2.raw <- myRlePlot(dd2.raw, sortBool=FALSE)
 p2.raw
 ```
 
-```{r}
+```{r, eval=FALSE}
 p2.raw.b <- myRlePlot(dd2.raw, sortBool=TRUE)
 p2.raw.b
 ```
@@ -1356,8 +1438,12 @@ p2 + facet_wrap(~SampleGroup)
         
 <!-- plotRLE with sceRawPca and logcounts_raw: 'fail' -->
 
-```{r plot_rle_logRaw_Caron_5hCellPerSpl, cache.lazy = FALSE, eval=FALSE}
-# issue with NAs
+```{r plot_rle_logRaw_Caron_5hCellPerSpl_ex, cache.lazy = FALSE, eval=FALSE}
+# plotRLE computes deviations from median
+# issue with NAs:
+# positive-median genes only, very few
+# so undefined RLE for most cells.
+
 p <- plotRLE(
     sceRawPca,
     exprs_values = "logcounts_raw",
@@ -1366,10 +1452,16 @@ p <- plotRLE(
 
 p
 ```
+
 <!-- plotRLE with sceRawPca and logcounts_raw - sorted: 'fail' -->
 
 ```{r plot_rle_logRaw_Caron_5hCellPerSpl, cache.lazy = FALSE, eval=FALSE}
 # plotRLE computes deviations from median
+# issue with NAs:
+# positive-median genes only, very few
+# so undefined RLE for most cells.
+
+# sort cell by increasing RLE, for each sample
 
 expMat <- log2(counts(sceRawPca)+1)
 expMat <- as(expMat, "matrix") 
@@ -1394,7 +1486,6 @@ ddToShowSort <- medDev.df.sorted$Barcode
 ddToShowSortInd <- match(ddToShowSort,
                          colData(sceRawPca)$Barcode)
 
-# issue with NAs
 p <- plotRLE(
     sceRawPca,
     ordering = ddToShowSortInd,
@@ -1405,198 +1496,6 @@ p <- plotRLE(
 p
 ```
 
-
-<!-- plotRLE with sce raw: 'fail' -->
-
-```{r, eval=FALSE}
-p <- plotRLE(
-    sce,
-    exprs_values = "counts",
-    exprs_logged = FALSE,
-    colour_by = "SampleName"
-) + ggtitle(sprintf("RLE plot: %s", typeNorm))
-
-p
-```
-
-Teung - full
-
-```{r}
-getwd()
-
-# https://scrnaseq-course.cog.sanger.ac.uk/website/cleaning-the-expression-matrix.html
-# https://scrnaseq-course.cog.sanger.ac.uk/index.html?prefix=data/
-library(SingleCellExperiment)
-library(scater)
-options(stringsAsFactors = FALSE)
-
-molecules <- read.table("../CourseMaterials/data/tung/molecules.txt", sep = "\t")
-anno <- read.table("../CourseMaterials/data/tung/annotation.txt", sep = "\t", header = TRUE)
-
-umi <- SingleCellExperiment(
-    assays = list(counts = as.matrix(molecules)), 
-    colData = anno
-)
-keep_feature <- rowSums(counts(umi) > 0) > 0
-table(keep_feature)
-umi <- umi[keep_feature, ]
-
-isSpike(umi, "ERCC") <- grepl("^ERCC-", rownames(umi)) # SCESet
-# scaterlegacy::setSpike(umi) <- grep("^ERCC-", rownames(umi), value=TRUE)
-
-isSpike(umi, "MT") <- rownames(umi) %in% 
-    c("ENSG00000198899", "ENSG00000198727", "ENSG00000198888",
-    "ENSG00000198886", "ENSG00000212907", "ENSG00000198786",
-    "ENSG00000198695", "ENSG00000198712", "ENSG00000198804",
-    "ENSG00000198763", "ENSG00000228253", "ENSG00000198938",
-    "ENSG00000198840")
-
-
-library(AnnotationHub)
-library(AnnotationDbi)
-dm <- query(ah, c("Homo sapiens", "Ensembl"))
-dm
-
-ens.hs.v83<- AnnotationHub()[["AH53211"]] # rdataclass is EnsDb
-chr.loc <- mapIds(ens.hs.v83, keys=rownames(umi),
-    keytype="GENEID", column="SEQNAME")
-is.mito.alt <- which(chr.loc=="MT")
-
-umi <- calculateQCMetrics(
-    umi,
-    feature_controls = list(
-        ERCC = isSpike(umi, "ERCC"), 
-        MT = isSpike(umi, "MT")
-    )
-)
-
-#calculateQCMetrics
-library(scater)
-df <- perCellQCMetrics(umi, subsets=list(Mito=is.mito.alt))
-df
-umi <- addPerCellQC(umi, subsets=list(Mito=is.mito.alt))
-
-
-p <- plotColData(
-    umi,
-    x = "detected",
-    y = "subsets_Mito_percent",
-    colour = "batch"
-)
-```
-
-Get reads to perform QC.
-
-```{r}
-# get reads
-reads <- read.table("../CourseMaterials/data/tung/reads.txt", sep = "\t")
-anno <- read.table("../CourseMaterials/data/tung/annotation.txt", sep = "\t", header = TRUE)
-reads <- SingleCellExperiment(
-    assays = list(counts = as.matrix(reads)), 
-    colData = anno
-)
-
-grepl("^ERCC-", rownames(reads))
-erccVec <- grep("^ERCC-", rownames(reads), value=TRUE)
-erccVec <- which(grepl("^ERCC-", rownames(reads)))
-names(erccVec) <- grep("^ERCC-", rownames(reads), value=TRUE)
-  
-reads <- addPerCellQC(reads,
-                      subsets = list(
-                        ERCC = erccVec,
-                        Mito = is.mito.alt))
-
-keep_feature <- rowSums(counts(reads) > 0) > 0
-reads <- reads[keep_feature, ]
-
-filter_by_expr_features <- (reads$detected > 7000)
-filter_by_total_counts <- (reads$sum > 1.3e6)
-filter_by_ERCC <- 
-    reads$batch != "NA19098.r2" & reads$subsets_ERCC_percent < 25
-table(filter_by_ERCC)
-filter_by_MT <- reads$subsets_Mito_percent < 0.30
-table(filter_by_MT)
-
-rowData(reads)$is_feature_control <- rownames(reads) %in% c(names(erccVec),
-                                                            names(is.mito.alt))
-```
-
-Filter cells
-
-```{r}
-umi$use <- (
-    # sufficient features (genes)
-    filter_by_expr_features &
-    # sufficient molecules counted
-    filter_by_total_counts &
-    # sufficient endogenous RNA
-    filter_by_ERCC &
-    # remove cells with unusual number of reads in MT genes
-    filter_by_MT
-)
-
-table(umi$use)
-```
-
-Filter genes:
-
-```{r}
-keep_feature <- nexprs(
-  umi[,colData(umi)$use], 
-  byrow = TRUE, 
-  detection_limit = 1
-) >= 2
-rowData(umi)$use <- keep_feature
-
-table(keep_feature)
-```
-
-Store log raw counts:
-
-```{r}
-dim(umi[rowData(umi)$use, colData(umi)$use])
-
-assay(umi, "logcounts_raw") <- log2(counts(umi) + 1)
-reducedDim(umi) <- NULL
-
-# write to file.
-saveRDS(umi, file = "../CourseMaterials/data/tung/umi.rds")
-```
-
-Exclude poor quality genes and cells:
-
-```{r}
-umi <- readRDS("../CourseMaterials/data/tung/umi.rds")
-umi.qc <- umi[rowData(umi)$use, colData(umi)$use]
-rowData(umi.qc)$is_feature_control <- rownames(umi.qc) %in% c(names(erccVec),
-                                                            names(is.mito.alt))
-endog_genes <- !rowData(umi.qc)$is_feature_control
-```
-
-scater PCA
-
-```{r}
-tmp <- runPCA(
-  umi.qc[endog_genes, ],
-  exprs_values = "logcounts_raw"
-)
-plotPCA(
-    tmp,
-    colour_by = "batch",
-    size_by = "detected",
-    shape_by = "individual"
-)
-```
-
-scater RLE
-
-```{r}
-plotRLE(
-    umi.qc[endog_genes, ], 
-    exprs_values = "logcounts_raw",
-    colour_by = "batch"
-)
-```
 ```{r, eval=FALSE}
 #> scater:::.plotRLE_minimal
 scater_plotRLE_minimalfunction (df, colour_by, ncol) 
@@ -1635,201 +1534,6 @@ scater_plotRLE_minimalfunction (df, colour_by, ncol)
 }
 #<bytecode: 0x559e619760e0>
 #<environment: namespace:scater>
-```
-
-
-
-```{r}
-# plotRle uses median deviation
-# for raw counts, we need to log2 then first
-expMat <- log2(counts(umi.qc))
-featMedian <- rowMedians(expMat)
-medDev <- expMat - featMedian
-
-medDev.umi.raw <- prepRleMat(medDev, sce = umi.qc)
-
-p.medDev.umi.raw <- myRlePlot(medDev.raw, sortBool=FALSE)
-p.medDev.umi.raw
-```
-```{r}
-p.medDev.umi.raw.b <- myRlePlot(medDev.raw, sortBool=TRUE)
-p.medDev.umi.raw.b
-```
-
-
-calc_cell_RLE:
-
-```{r}
-# tung RLE
-rawRleMat.umi <- calc_cell_RLE(counts(umi.qc)[endog_genes, ])
-colnames(rawRleMat.umi) <- umi.qc$sample_id
-
-# dev - NAs
-x <- apply(rawRleMat.umi, 1, function(x) sum(!is.na(x)))
-summary(x)
-table(x>0)
-```
-
-
-```{r}
-colData(umi.qc)$Barcode <- colData(umi.qc)$sample_id
-colData(umi.qc)$SampleGroup <- colData(umi.qc)$individual
-colData(umi.qc)$SampleName <- colData(umi.qc)$batch
-
-dd2.umi.raw <- prepRleMat(rawRleMat.umi, sce = umi.qc)
-
-p2.umi.raw <- myRlePlot(dd2.umi.raw, sortBool=FALSE)
-p2.umi.raw
-
-```
-
-```{r}
-p2.umi.raw.b <- myRlePlot(dd2.umi.raw, sortBool=TRUE)
-p2.umi.raw.b
-```
-
-cell RLE:
-
-```{r}
-# for each cell:
-# median RLE across genes:
-cell_RLE.umi <- apply(rawRleMat.umi, 2, median, na.rm = T)
-summary(cell_RLE.umi)
-
-# number of non-NA RLE across genes:
-cell_RLE.noNa <- apply(rawRleMat.umi, 2, function(x) sum(!is.na(x)))
-
-#plot(cell_RLE)
-#plot(cell_RLE.noNa, cell_RLE)
-
-cell_RLE_df.umi <- data.frame(
-  "Barcode" = colData(umi.qc)$sample_id,
-  #"SampleName" = colData(umi.qc)$individual,
-  "SampleName" = colData(umi.qc)$batch,
-  cell_RLE.noNa,
-  cell_RLE
-)
-
-#plot(cell_RLE.umi)
-
-p <- ggplot(cell_RLE_df.umi, aes(x=Barcode, y=cell_RLE, col=SampleName)) + 
-  geom_point(alpha=0.8, shape=16)
-p
-#p + facet_wrap(~SampleName)
-
-x <- apply(counts(umi.qc), 1, median)
-summary(x)
-getwd()
-table(x>0)
-```
-
-Thin to 50% 0s:
-
-```{r}
-# now thin the matrix
-# for each gene, pick x% of cells and set count to 0.
-slimMat50.mat <- t(apply(counts(umi.qc), 1, function(x){x[sample(1:length(x), size=length(x)*0.5)] <- 0; x}))
-
-#slimMat50.mat <- matrix(unlist(slimMat50), nrow = nrow(umi.qc), byrow=TRUE)
-#colnames(slimMat50.mat) <- colnames(umi.qc)
-#rownames(slimMat50.mat) <- rownames(umi.qc)
-
-x <- apply(slimMat50.mat, 1, median)
-summary(x)
-table(x>0)
-
-umi.qc.50 <- umi.qc
-counts(umi.qc.50) <- slimMat50.mat
-# logcounts_raw
-assay(umi.qc.50, "logcounts_raw") <- log2(counts(umi.qc.50) + 1)
-```
-
-```{r}
-plotRLE(
-    umi.qc.50[endog_genes, ], 
-    exprs_values = "logcounts_raw",
-    colour_by = "batch"
-)
-```
-
-Thin tp 30% 0s:
-
-```{r}
-# now thin the matrix
-# for each gene, pick x% of cells and set count to 0.
-slimMat30.mat <- t(apply(counts(umi.qc), 1, function(x){x[sample(1:length(x), size=length(x)*0.7)] <- 0; x}))
-x <- apply(slimMat30.mat, 1, median)
-x <- apply(slimMat30.mat, 1, mean)
-summary(x)
-table(x>0)
-
-umi.qc.30 <- umi.qc
-counts(umi.qc.30) <- slimMat30.mat
-# logcounts_raw
-assay(umi.qc.30, "logcounts_raw") <- log2(counts(umi.qc.30) + 1)
-```
-
-```{r}
-plotRLE(
-    umi.qc.10[endog_genes, ], 
-    exprs_values = "logcounts_raw",
-    colour_by = "batch"
-)
-```
-
-Thin to 30% 0s + 5000 orig cells:
-
-```{r}
-# now thin the matrix
-# for each gene, pick x% of cells and set count to 0.
-slimMat30.mat <- t(apply(counts(umi.qc), 1, function(x){x[sample(1:length(x), size=length(x)*0.7)] <- 0; x}))
-# add some orig counts back
-slimMat30.mat[1:5000,] <- counts(umi.qc)[1:5000,]
-
-x <- apply(slimMat30.mat, 1, median)
-summary(x)
-table(x>0)
-
-umi.qc.30 <- umi.qc
-counts(umi.qc.30) <- slimMat30.mat
-# logcounts_raw
-assay(umi.qc.30, "logcounts_raw") <- log2(counts(umi.qc.30) + 1)
-```
-
-```{r}
-plotRLE(
-    umi.qc.30[endog_genes, ], 
-    exprs_values = "logcounts_raw",
-    colour_by = "batch"
-)
-```
-
-Thin to 30% 0s + 500 orig cells:
-
-```{r}
-# now thin the matrix
-# for each gene, pick x% of cells and set count to 0.
-slimMat30.mat <- t(apply(counts(umi.qc), 1, function(x){x[sample(1:length(x), size=length(x)*0.7)] <- 0; x}))
-# add some orig counts back
-# but only for 500 cells
-slimMat30.mat[1:500,] <- counts(umi.qc)[1:500,]
-
-x <- apply(slimMat30.mat, 1, median)
-summary(x)
-table(x>0)
-
-umi.qc.30 <- umi.qc
-counts(umi.qc.30) <- slimMat30.mat
-# logcounts_raw
-assay(umi.qc.30, "logcounts_raw") <- log2(counts(umi.qc.30) + 1)
-```
-
-```{r}
-plotRLE(
-    umi.qc.30[endog_genes, ], 
-    exprs_values = "logcounts_raw",
-    colour_by = "batch"
-)
 ```
 
 ### log CPM
@@ -1876,12 +1580,16 @@ p
 ```
 
 
-```{r}
+```{r, eval=FALSE}
+# 2.2% of points are not NA
+# 390 genes out of 17700
 cpmRleMat <- calc_cell_RLE(calculateCPM(sce, size_factors = NULL))
 colnames(cpmRleMat) <- sce$Barcode
 ```
 
-```{r}
+```{r, eval=FALSE}
+# ok but base boxplot
+
 cellColor <- as.numeric(factor(colData(sce)$SampleName))
 #boxplot(calc_cell_RLE(counts(sce)),
 #boxplot(calc_cell_RLE(counts(sce)[,1:2000]),
@@ -1901,7 +1609,11 @@ boxplot(cpmRleMat,
 abline(h=0)
 ```
 
-```{r}
+```{r, eval=FALSE}
+# fine
+# but with positive-median genes
+# only 390 out of 17700
+
 dd2.cpm <- prepRleMat(cpmRleMat)
 p2.cpm <- myRlePlot(dd2.cpm, sortBool=FALSE)
 p2.cpm
@@ -1911,30 +1623,26 @@ p2.cpm.b
 p2.cpm/p2.cpm.b
 ```
 
+<!-- plot positive-count RLE -->
 
 ```{r}
+# RLE with positive counts
 cpmRleMat <- calc_cell_RLE2(calculateCPM(sce, size_factors = NULL))
 colnames(cpmRleMat) <- sce$Barcode
 ```
 
-
 ```{r}
+# plot positive-count RLE
 
-dd2 <- prepRleMat(cpmRleMat)
-p2 <- myRlePlot(dd2)
-```
+dd2.cpm <- prepRleMat(cpmRleMat)
 
-```{r}
-p2
-```
+p2.cpm <- myRlePlot(dd2.cpm, sortBool=FALSE)
+#p2.cpm
 
-<!-- p2 + coord_flip(), no need -->
+p2.cpm.b <- myRlePlot(dd2.cpm, sortBool=TRUE)
+#p2.cpm.b
 
-```{r, eval=FALSE}
-p2 + coord_flip() + theme(
-  #axis.title.y=element_blank(),
-  axis.text.y=element_blank(),
-  axis.ticks.y=element_blank())
+p2.cpm/p2.cpm.b
 ```
 
 ### scran
@@ -2026,7 +1734,7 @@ summary(sizeFactors(scranPca))
 plotRLE has two styles: full and minimal
 the full style shows the usual ggplot boxplot inc outliers
 the minimal style shows a tufte-like boxplot, inc whiskers but no outliers
---> 
+-->
 
 ```{r plot_rle_deconv_Caron_5hCellPerSpl, eval=FALSE}
 randCells <- sort(sample(1:ncol(scranPca), 1000)) # 1000 cells only
@@ -2050,7 +1758,7 @@ p
 # ... but cell-wise RLE may well be 0 for all cell_sparsity
 # ... so no effective ordering
 expMat <- log2(logcounts(scranPca)[,randCells]+1)
-expMat <- as(expMat, "matrix") 
+expMat <- as(expMat, "matrix")
 featMedian <- rowMedians(expMat)
 medDev <- expMat - featMedian
 # cell-wise deviation: compute median
@@ -2105,6 +1813,7 @@ p <- plotRLE(
 
 p
 ```
+
 ```{r}
 #deconvRleMat <- calc_cell_RLE2(logcounts(scranPca), logVal = "log2")
 #deconvRleMat <- calc_cell_RLE2(logcounts(scranPca)[,1:2000], logVal = "raw")
@@ -2131,12 +1840,8 @@ p2.deconv/p2.deconv.b
 
 ```{r}
 colSums(!is.na(deconvRleMat[,])) %>% summary
-#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
 #   1008    1681    1984    2185    2548    4061
-```
-
-```{r}
-z[posCountInd] %>% boxplot()
 ```
 
 ### SCTransform
@@ -2147,9 +1852,8 @@ because the former filters out genes that are expressed in few cells by itself
 -->
 
 ```{r comp_pca_sct_Caron_5hCellPerSpl, cache.lazy = FALSE}
-tmpFn <- sprintf("%s/%s/Robjects/%s_postSct%s.Rds",
-		 projDir, outDirBit, setName, setSuf)
-sce <- readRDS(tmpFn)
+#tmpFn <- str_glue("{projDir}/{outDirBit}/{setName}_postSct{setSuf}.Rds")
+#sce <- readRDS(tmpFn)
 
 typeNorm <- "sctrans"
 
@@ -2335,27 +2039,16 @@ p2.sct.b <- myRlePlot(dd2.sct, sortBool=TRUE)
 p2.sct.b
 ```
 
-
-
 ```{r}
 sctRleMat2 <- calc_cell_RLE2(assay(sce, "sctrans_norm"), logVal = "sct")
 colnames(sctRleMat2) <- sce$Barcode
-sctRleMat2[1:10,1:4]
-
-z <- unlist(sctRleMat2[1,]) - median(unlist(sctRleMat2[1,]))
-#boxplot(z)
-#summary(z)
 
 dd2.sct2 <- prepRleMat(sctRleMat2, sce = sce)
 p3.sct2 <- myRlePlot(dd2.sct2, sortBool=FALSE, qCutBool = FALSE)
+#p3.sct2
 
-p3.sct2
-```
-
-
-```{r}
 p3.sct2.b <- myRlePlot(dd2.sct2, sortBool=TRUE, qCutBool = FALSE)
-p3.sct2.b
+#p3.sct2.b
 ```
 
 ```{r}
@@ -2364,7 +2057,6 @@ p3.sct2/p3.sct2.b # slow with 1000s of cells and 18000 genes ... and large.
 
 
 ```{r}
-library(patchwork)
 p/p2
 p/p2/p3
 ```
