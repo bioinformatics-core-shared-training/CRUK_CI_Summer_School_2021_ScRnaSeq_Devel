@@ -75,13 +75,11 @@ Computational correction of these effects is critical for eliminating batch-to-b
 We will load the SCE R object with the normalised counts from after the dimmensionality reduction. This object has each of the 7 individual samples SCE 
 objects in a `large list` for ease of running the following steps but it is no different to running each sample seperately at this point. Each sample has been subset to 500 cells per sample for demonstration purposes.
 
-
-
 ```{r loadSplit_PBMMC_ETV6-RUNX1}
 # dimRedForViz.Rmd writes _dimRed.Rds
 getwd()
 dir("..")
-sce <- readRDS("../CourseMaterials/Robjects/caron_postDeconv_5hCellPerSpl_dimRed.Rds")
+sce <- readRDS("../Robjects/caron_postDeconv_5hCellPerSpl_dimRed.Rds")
 
 #split.sce <- split(sce, sample(LETTERS, nrow(sce), replace=TRUE))
 x <- subset(sce, , SampleName=="ETV6-RUNX1_1")
@@ -90,16 +88,18 @@ sampleGroupToGet <- grep("PBMMC|ETV6-RUNX1", sampleGroupLevels, value = TRUE)
 all.sce <- lapply(sampleGroupToGet, function(x){ subset(sce, , SampleName==x) })
 names(all.sce) <- sampleGroupToGet
 
-saveRDS(all.sce, "../RobjectsReadOnly/DataIntergration_all_sce.rds")
+saveRDS(all.sce, "../Robjects/DataIntegration_all_sce.rds")
 ```
 
 
 ```{r load_PBMMC_ETV6-RUNX1, eval=FALSE}
-all.sce <- readRDS("../RobjectsReadOnly/DataIntergration_all_sce.rds")
+all.sce <- readRDS("../Robjects/DataIntegration_all_sce.rds")
 all.sce
 ```
 
-```{r}
+<!-- dev check files -->
+
+```{r, eval=FALSE}
 # DEV
 # caron_postQc_5hCellPerSpl.Rds
 file.exists("../CourseMaterials/Robjects/caron_postQc_5hCellPerSpl.Rds")
@@ -129,7 +129,9 @@ x <- readRDS(tmpFn)
 x
 ```
 
-```{r, sampleSheet, message=FALSE}
+<!-- sampleSheet noy used -->
+
+```{r, sampleSheet, message=FALSE, eval=FALSE}
 # samplesheet not used ?
 #sampleSheet <- read_tsv("sampleSheet_for_DI.tsv")
 samplesheet <- read_tsv("../CourseMaterials/Data/sample_sheet.tsv")
@@ -206,7 +208,6 @@ rescaled <- multiBatchNorm(uni.sce, batch = "SampleName")
 ```
 
 * We perform feature selection by averaging the variance components across all batches with the combineVar() function. We compute the average as it is responsive to batch-specific HVGs while still preserving the within-batch ranking of genes.
-
 
 ```{r}
 my_combineBlocks <- function (blocks, ave.fields, pval.field, method, geometric, 
@@ -320,7 +321,7 @@ combined.dec <- combineVar(uni.dec)
 # identify highly variables genes
 # here as those with a positive biological component
 chosen.hvgs <- combined.dec$bio > 0
-
+combined.dec$chosenHvg <- chosen.hvgs
 ```
 
 Number of HVGs: `r sum(chosen.hvgs)`.
@@ -338,7 +339,32 @@ Before we actually perform any correction, it is worth examining whether there i
 # concat matrices:
 uncorrected <- do.call(cbind, rescaled)
 
+# copy choice to uncorrected SCE:
+all(rownames(combined.dec) == rownames(uncorrected))
+rowData(uncorrected) <- cbind(rowData(uncorrected), combined.dec)
+```
 
+<!-- plot variance decomposition data --> 
+
+```{r, eval=FALSE}
+combDf <- data.frame(rowData(uncorrected))
+table(combDf$chosenHvg, -log10(combDf$FDR) < 0.05)
+
+# plot
+xlimVec <- quantile(combDf$tech, probs=c(0.05, 0.95))
+ylimVec <- quantile(combDf$bio, probs=c(0.05, 0.95))
+p <- ggplot(combDf,
+            aes(x=tech, y=bio, col=-log10(FDR))
+            ) +
+  geom_point(size = 0.5, alpha = 0.5) +
+  scale_x_continuous(limits = xlimVec) +
+  scale_y_continuous(limits = ylimVec)
+p
+p + facet_wrap(chosenHvg~FDR<0.05)
+```
+
+
+```{r}
 # Perform PCA
 # Using RandomParam() as it is more efficient for file-backed matrices.
 set.seed(0010101010)
@@ -357,14 +383,14 @@ snn.gr <- buildSNNGraph(uncorrected, use.dimred="PCA")
 # identify cluster with the walk trap method
 clusters <- igraph::cluster_walktrap(snn.gr)$membership
 # get number of cells for each {cluster, batch} pair
-clusterTab <- data.frame("clusters"=clusters, "batch"=uncorrected$SampleName)
+clusterTab <- data.frame("clusters" = clusters, "batch" = uncorrected$SampleName)
 ```
 
 Cluster size and cell contribution by sample:
 
 ```{r clusPlotdata, warning=FALSE, message=FALSE}
 ClusterInfo <- clusterTab %>% 
-  group_by(clusters,batch) %>%
+  group_by(clusters, batch) %>%
   summarise(cells = n()) 
 ```
 
@@ -374,25 +400,25 @@ p1 <- ggplot(data=ClusterInfo, aes(x=clusters,y=cells, fill=batch)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
   ggtitle("uncorrected, cell numbers") +
   theme(legend.text = element_text(size = 7))
-p2 <- ggplot(data=clusterTab, aes(x=clusters, fill=batch)) +
+p2 <- ggplot(data=clusterTab, aes(x=clusters, fill = batch)) +
   geom_bar(position = "fill") +
   scale_y_continuous(labels = scales::percent) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
   ggtitle("uncorrected, proportions") +
   theme(legend.text = element_text(size = 7))
 
-plot_grid(p1,p2,ncol=1)
+plot_grid(p1, p2, ncol=1)
 ```
 
 We can also visualize the uncorrected coordinates using a t-SNE plot. The strong separation between cells from different batches is consistent with the clustering results.
 
 ```{r diagTsneDraw_PBMMC_ETV6-RUNX1}
 set.seed(1111001)
-uncorrected <- runTSNE(uncorrected, dimred="PCA")
+uncorrected <- runTSNE(uncorrected, dimred = "PCA")
 # draw:
 p.tsne <- plotTSNE(uncorrected,
-	      colour_by="SampleName",
-	      shape_by="SampleGroup") +
+	      colour_by = "SampleName",
+	      shape_by = "SampleGroup") +
 theme(legend.text = element_text(size = 7))
 
 p.tsne
@@ -407,7 +433,7 @@ Of course, the other explanation for batch-specific clusters is that there are c
 Let us write out the corresponding SCE object.
 
 ```{r diagWriteRds_PBMMC_ETV6-RUNX1}
-saveRDS(uncorrected, "DataIntergration_uncorrected.rds")
+saveRDS(uncorrected, "../Robjects/DataIntegration_uncorrected.rds")
 ```
 
 ## Linear regression
@@ -427,12 +453,12 @@ After clustering, we observe that most clusters consist of mixtures of cells fro
 
 ```{r linReg_diagClu_PBMMC_ETV6-RUNX1}
 set.seed(1010101010) # To ensure reproducibility of IRLBA.
-linear_rescaled <- runPCA(linear_rescaled, subset_row=chosen.hvgs, exprs_values="corrected")
+linear_rescaled <- runPCA(linear_rescaled, subset_row = chosen.hvgs, exprs_values = "corrected")
 
-snn.gr.linear <- buildSNNGraph(linear_rescaled, use.dimred="PCA")
+snn.gr.linear <- buildSNNGraph(linear_rescaled, use.dimred = "PCA")
 clusters.linear <- igraph::cluster_walktrap(snn.gr.linear)$membership
 
-clusterTab.linear <- data.frame("clusters"=clusters.linear, "batch"=linear_rescaled$batch)
+clusterTab.linear <- data.frame("clusters" = clusters.linear, "batch" = linear_rescaled$batch)
 ```
 
 Cluster size and cell contribution by sample:
@@ -453,15 +479,15 @@ lp2 <- ggplot(data=clusterTab.linear, aes(x=clusters, fill=batch)) +
 	theme(axis.text.x=element_text(angle = 90, hjust = 0)) +
   scale_y_continuous(labels = scales::percent) +
   theme(legend.text = element_text(size = 7))
-plot_grid(lp1,lp2,ncol=1)
+plot_grid(lp1, lp2, ncol=1)
 ```
 
 Compute and plot t-SNE:
 
 ```{r linReg_diagTsneDraw_PBMMC_ETV6-RUNX1, fig.height=7, fig.width=7}
-linear_rescaled <- runTSNE(linear_rescaled, dimred="PCA")
+linear_rescaled <- runTSNE(linear_rescaled, dimred = "PCA")
 linear_rescaled$batch <- factor(linear_rescaled$batch)
-lp.tsne <- plotTSNE(linear_rescaled, colour_by="batch")
+lp.tsne <- plotTSNE(linear_rescaled, colour_by = "batch")
 lp.tsne
 ```
 
@@ -487,10 +513,10 @@ The `batchelor` package provides an implementation of the MNN approach via the `
 # irlba for file-backed matrices.
 set.seed(1000101001)
 mnn.out <- fastMNN(rescaled,
-                   auto.merge=TRUE,
-                   d=50,
-                   k=20,
-                   subset.row=chosen.hvgs,
+                   auto.merge = TRUE,
+                   d = 50,
+                   k = 20,
+                   subset.row = chosen.hvgs,
                    BSPARAM=BiocSingular::RandomParam(deferred=TRUE))
 mnn.out
 mnn.out.corre.dim <- dim(reducedDim(mnn.out, "corrected"))
@@ -633,7 +659,7 @@ genesToShow <- c(
 	 	)
 
 tmpInd <- which(rowData(uncorrected)$Symbol %in% genesToShow)
-ensToShow <- rowData(uncorrected)$ensembl_gene_id[tmpInd]
+ensToShow <- rowData(uncorrected)$ID[tmpInd]
 #```
 
 #B cells:
@@ -854,7 +880,7 @@ We suggest limiting the use of per-gene corrected values to visualization, e.g.,
 ```{r consis_mnnoutSaveRds_PBMMC_ETV6-RUNX1, warning=F}
 # save the mnn.out object in a file
 
-saveRDS(mnn.out, file="DataIntergration_mnn.out.rds")
+saveRDS(mnn.out, file="DataIntegration_mnn.out.rds")
 
 ```
 
