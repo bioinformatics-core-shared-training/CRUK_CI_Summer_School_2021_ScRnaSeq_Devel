@@ -296,7 +296,7 @@ Exclude poor-quality cells from the SingleCellExperiment object and save the
 final object to the `results` directory for later use.
 
 ```{r filter_cells}
-sce.Filtered <- sce[,!sce$discard]
+sce.Filtered <- sce[,!batch.reasons$discard]
 saveRDS(sce.Filtered, "../results/Caron_filtered.rds")
 ```
 

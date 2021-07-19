@@ -1,6 +1,6 @@
 ---
 title: "CRUK CI Summer School 2021 - introduction to single-cell RNA-seq analysis"
-subtitle: 'Quality Control - Challenge'
+subtitle: 'Quality Control - Exercise'
 author: "Stephane Ballereau, Ashley Sawle"
 output:
   html_document:
@@ -51,8 +51,12 @@ We will load both the Caron and HCA data sets. We have already prepared a sample
 meta data table that relates the sample/run ID to the sample group. This is the
 metadata for all samples from both data sets.
 
-```{r samplesheet_preProc, message=FALSE}
+```{r samplesheet_preProc_dummy, eval=FALSE}
 samplesheet <- read_tsv("../Data/sample_sheet.tsv")
+```
+
+```{r samplesheet_preProc, message=FALSE, echo=FALSE}
+samplesheet <- read_tsv("Data/sample_sheet.tsv")
 ```
 
 ```{r samplesheet_display_preProc}
@@ -74,8 +78,13 @@ bp.params <- MulticoreParam(workers = 7)
 
 ### Load the data
 
-```{r}
+```{r eval=FALSE}
 sce <- readRDS("../Robjects/Caron_data.sce.annot.rds")
+```
+
+
+```{r echo=FALSE}
+sce <- readRDS("Robjects/Caron_data.sce.annot.rds")
 ```
 
 # QC
@@ -300,9 +309,14 @@ droplets that do not pass your criteria from the data set.
 Exclude poor-quality cells from the SingleCellExperiment object and save the
 final object to the `results` directory for later use.
 
-```{r filter_cells}
-sce.Filtered <- sce[,!sce$discard]
+```{r filter_cells_dummy, eval=FALSE}
+sce.Filtered <- sce[,!batch.reasons$discard]
 saveRDS(sce.Filtered, "results/Caron_filtered.rds")
+```
+
+
+```{r filter_cells, echo=FALSE}
+sce.Filtered <- sce[,!batch.reasons$discard]
 ```
 
 # Optional: Filter genes
@@ -313,6 +327,7 @@ metrics, as some of them were calculated across all genes. Save this final
 object as _results/Caron_filtered_genes.rds_.
 
 ```{r filter_genes}
+sce <- sce.Filtered
 sce <- addPerFeatureQC(sce, BPPARAM = bp.params)
 rowData(sce)$gene_sparsity <- (100 - rowData(sce)$detected) / 100
 min.cells <- 1 - (20 / ncol(sce))
@@ -355,7 +370,7 @@ colData(sce) <- colData(sce) %>%
 
 Write the object out to a file in the `results` directory  for later use.
 
-```{r}
+```{r eval=FALSE}
 saveRDS(sce, "results/Caron_filtered_genes.rds")
 ```
 
