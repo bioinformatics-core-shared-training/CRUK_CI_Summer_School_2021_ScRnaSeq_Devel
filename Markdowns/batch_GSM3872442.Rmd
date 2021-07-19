@@ -46,12 +46,9 @@ set.seed(123) # for reproducibility
 
 ## Learning objectives
 
-* bla
-* bla
-* bla
+* Understand different batch correction methods
 
-
-## Data
+## Data
 
 GSM3872442 is a single PBMMC sample sequenced as a pool of two libraries:
 SRR9264351 and SRR9264352.
@@ -91,7 +88,7 @@ setSuf <- ""
 # Read object in:
 tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postQc%s.Rds",
 		 projDir, outDirBit, "caron", setSuf)
-sce <- readRDS(tmpFn)
+sce <- readRDS("Robjects/caron_postQc_5hCellPerSpl.Rds")
 ```
 
 Select the GSM3872442 cells:
@@ -102,6 +99,13 @@ sample1.nz.sce <- SingleCellExperiment(list(counts=counts(sce[, sce$Run %in% c("
 
 sample2.nz.sce <- SingleCellExperiment(list(counts=counts(sce[, sce$Run %in% c("SRR9264352")])),
                                        colData=colData(sce[, sce$Run %in% c("SRR9264352")]))
+
+saveRDS(sample1.nz.sce, "Robjects/BC_sample1.rds")
+saveRDS(sample2.nz.sce, "Robjects/BC_sample2.rds")
+```
+
+```{r}
+
 ```
 
 ## Normalise each separately and re-pool
