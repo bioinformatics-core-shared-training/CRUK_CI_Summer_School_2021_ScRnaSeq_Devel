@@ -1,7 +1,7 @@
 ---
 title: "CRUK CI Summer School 2020 - introduction to single-cell RNA-seq analysis"
-author: "Stephane Ballereau, Zeynep Kalender Atak, Katarzyna Kania"
-date: "July 2020"
+author: "Stephane Ballereau"
+date: "July 2021"
 output:
   html_document:
     toc: yes
@@ -41,8 +41,10 @@ params2 <- list(
   #"projDir" = "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020",
   "projDir" = "..",
   "dirRel" = "..",
-  "inpDirBit" = "CourseMaterials",
-  "outDirBit" = "CourseMaterials",
+  #"inpDirBit" = "CourseMaterials",
+  #"outDirBit" = "CourseMaterials",
+  "inpDirBit" = ".", # course machine, in CourseMaterials/ Markdowns or Scripts
+  "outDirBit" = ".", 
   "bookType" = "km",
   "cacheBool"  = FALSE,
   "setName" = "caron",
@@ -81,8 +83,6 @@ figSize <- 7
 anaStg <- sprintf("%s%s", splSetToGet2, setSuf)
 anaStg <- gsub("_", "-", anaStg)
 
-#displayToUse <- Sys.getenv("DISPLAY")
-#Cairo::CairoX11(display=displayToUse);
 ```
 
 ```{r clusPostDsi_Caron.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
@@ -120,6 +120,7 @@ library(ggplot2)
 library(scater)
 library(scran)
 library(tidyverse)
+library(bluster) # for clustering
 library(dynamicTreeCut)
 library(cluster) # for silhouette
 library(igraph) # for graph-based clustering and plotting networks 
@@ -165,8 +166,10 @@ We will load the R file keeping the SCE (SingleCellExperiment) object with the n
 #}
 #sce0 <- readRDS(tmpFn)
 
-dir("../CourseMaterials/Robjects/")
-sce0 <- readRDS("../CourseMaterials/Robjects/caron_postDeconv_5hCellPerSpl.Rds")
+getwd()
+dir('..')
+dir("../Robjects/")
+sce0 <- readRDS("../Robjects/caron_postDeconv_5hCellPerSpl.Rds")
 
 
 # Read mnn.out object in:
@@ -182,13 +185,11 @@ splSetToGet2 <- gsub(",", "_", splSetToGet)
 #}
 #sce <- readRDS(tmpFn) # ex mnn.out
 
-sce <- readRDS("../CourseMaterials/Robjects/DataIntergration_mnn.out.rds")
-
-
+sce <- readRDS("../Robjects/DataIntegration_mnn.out.rds")
 
 #sce2 <- readRDS(tmpFn) # ex mnn.out
 #rownames(sce) <- rownames(sce2)
-rowData(sce) <- cbind(rowData(sce), rowData(sce0)[rownames(sce),]) %>% DataFrame
+rowData(sce) <- cbind(rowData(sce0)[rownames(sce),], rowData(sce)) %>% DataFrame
 ```
 
 Number of cells: `r ncol(sce)`.
@@ -655,8 +656,10 @@ One may also use multiple metrics rather than only one and check how they concor
 ```{r NbClust_run, eval=TRUE}
 # run only once and save outcome to file to load later.
 
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_500CellK2to20NbClust.Rds",
-                 projDir, outDirBit, setName, setSuf)
+#tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_500CellK2to20NbClust.Rds",
+#                 projDir, outDirBit, setName, setSuf)
+tmpFn <- str_glue("{projDir}/{outDirBit}/Robjects/{setName}_postDeconv{setSuf}_500CellK2to20NbClust.Rds")
+tmpFn
 if(file.exists(tmpFn))
 {
 	nb <- readRDS(file=tmpFn)
@@ -685,7 +688,7 @@ rm(tmpFn)
 Table showing the number of methods selecting values of k as the best choice:
 
 ```{r NbClust_show}
-table(nb$Best.nc[1,]) # consensus seems to be 3 clusters
+table(nb$Best.nc[1,])
 rm(nb)
 ```
 
@@ -888,12 +891,39 @@ The network may also be built and clusters identified at once with `scran::clust
 # set use.kmeans to TRUE to 'create centroids that are then subjected to graph-based clustering' (see manual)
 # with kmeans.centers default (square root of the number of cells)
 # or set kmeans.centers to another value, eg 30
+if(FALSE)
+{
 clustersOnce <- clusterSNNGraph(sce,
 			     #use.dimred="PCA",
 			     use.dimred="corrected",
 			     use.kmeans=TRUE,
-			     kmeans.centers = 200,
+			     kmeans.centers = 50,
 			     full.stats=TRUE)
+}
+
+mat <- reducedDim(sce, "corrected")
+dim(mat)
+
+set.seed(100) # for the k-means
+two.out <- clusterRows(mat, TwoStepParam())
+two.out <- clusterRows(mat, TwoStepParam(
+  first = KmeansParam(centers=100),
+  second = NNGraphParam())
+)
+table(two.out)
+plotTSNE(sce, colour_by=I(two.out))
+plotUMAP(sce, colour_by=I(two.out))
+
+
+two.out <- clusterRows(mat, TwoStepParam(
+  first = KmeansParam(centers=100),
+  second = NNGraphParam(k=4, cluster.fun = "walktrap")),
+  full = TRUE)
+class(two.out)
+plotTSNE(sce, colour_by=I(two.out$clusters))
+plotUMAP(sce, colour_by=I(two.out$clusters))
+
+#table(two.out$objects$first$kmeans$cluster)
 ```
 
 Distribution of the size of the 200 k-means clusters:
@@ -901,14 +931,16 @@ Distribution of the size of the 200 k-means clusters:
 ```{r}
 # 'kmeans': assignment of each cell to a k-means cluster
 ##table(clustersOnce$kmeans) # no good with many clusters
-summary(data.frame(table(clustersOnce$kmeans))$Freq)
+# old # summary(data.frame(table(clustersOnce$kmeans))$Freq)
+summary(data.frame(table(two.out$objects$first$kmeans$cluster))$Freq)
 ```
 
 Graph-based cluster sizes in cell number:
 
 ```{r}
 # 'igraph': assignment of each cell to a graph-based cluster operating on the k-means clusters
-table(clustersOnce$igraph)
+# old # table(clustersOnce$igraph)
+table(two.out$clusters)
 ```
 
 The heatmap below displays the contingency table for the graph-based clusters (rows) and the k-means clusters (columns) used to build the network (color-code by size, i.e. number of cells).
@@ -916,26 +948,34 @@ The heatmap below displays the contingency table for the graph-based clusters (r
 ```{r}
 #table(clustersOnce$igraph,
 #	clustersOnce$kmeans)
-tmpTab <- table(clustersOnce$igraph,
-		clustersOnce$kmeans)
+# old # tmpTab <- table(clustersOnce$igraph,
+# old # 		clustersOnce$kmeans)
+tmpTab <- table(
+  two.out$clusters,
+	two.out$objects$first$kmeans$cluster)
 rownames(tmpTab) = paste("igraph", rownames(tmpTab), sep = "_")
 colnames(tmpTab) = paste("kmeans", colnames(tmpTab) , sep = "_")
-pheatmap(tmpTab, show_colnames = FALSE)
+pheatmap(tmpTab, show_colnames = FALSE, cluster_rows = FALSE, cluster_cols = !FALSE)
 ```
 
 Graph-based cluster sizes in k-mean cluster number:
 
 ```{r}
 # ‘membership’, the graph-based cluster to which each node is assigned
-table(metadata(clustersOnce)$membership)
+# old # table(metadata(clustersOnce)$membership)
+table(two.out$objects$second$communities$membership)
 ```
 
 The plot below show the network build with the 200 k-means clusters used the
 identify the graph-based clusters.
 
 ```{r, fig.height=6, out.width = '100%'}
-g <- metadata(clustersOnce)$graph
-V(g)$membership <- metadata(clustersOnce)$membership
+# old # g <- metadata(clustersOnce)$graph
+# old # V(g)$membership <- metadata(clustersOnce)$membership
+
+g <- two.out$objects$second$graph
+V(g)$membership <- two.out$objects$second$communities$membership
+
 
 # set colors for clusters
 rgb.palette <- colorRampPalette(c("purple","yellow"), space="rgb") # Seurat-like
@@ -948,7 +988,7 @@ plot.igraph(
   vertex.size = 3, vertex.label = NA,
   vertex.color = cols[V(g)$membership],
   frame.color = cols[V(g)$membership],
-  main = "with 200 k-means clusters"
+  main = "with 100 k-means clusters"
 )
 
 # add legend
@@ -1032,6 +1072,7 @@ legend('bottomright',
 The t-SNE plot shows cells color-coded by cluster membership:
 
 ```{r show_louvain_tsne_1, fig.height=6, fig.width=8}
+fontsize <- theme(axis.text=element_text(size=12), axis.title=element_text(size=16))
 # show clusters on TSNE
 p <- plotTSNE(sce, colour_by="louvain") + fontsize
 p
@@ -1063,7 +1104,8 @@ leidenOk <- FALSE
 # use the reticulate R package to use python modules
 library(reticulate)
 # set path to python
-use_python("/home/baller01/.local/share/r-miniconda/envs/r-reticulate/bin/python")
+#use_python("/home/baller01/.local/share/r-miniconda/envs/r-reticulate/bin/python")
+use_python("/home/ubuntu/.local/share/r-miniconda/envs/r-reticulate/bin/python")
 # check availability of python modules and set logical accordingly
 if(reticulate::py_module_available("igraph")
 & reticulate::py_module_available("leidenalg"))
@@ -1088,7 +1130,7 @@ table(sce$leiden)
 
 The plot below displays the network with nodes (the 1000 randomly chosen cells) color-coded by cluster membership:
 
-```{r show_leiden_graph, warning = FALSE, fig.height=6, out.width = '100%'}
+```{r show_leiden_graph, warning = FALSE, eval=leidenOk, fig.height=6, out.width = '100%'}
 ## Define a set of colors to use (must be at least as many as the number of
 ## communities)
 ##cols <- RColorBrewer::brewer.pal(n = nlevels(sce$cluster), name = "RdYlBu")
@@ -1131,7 +1173,7 @@ legend('bottomright',
 
 The t-SNE plot below shows cells color-coded by cluster membership:
 
-```{r show_leiden_tsne_1, fig.height=6, fig.width=8}
+```{r show_leiden_tsne_1, eval=leidenOk, fig.height=6, fig.width=8}
 # show clusters on TSNE
 p <- plotTSNE(sce, colour_by="leiden") + fontsize
 p
@@ -1139,7 +1181,7 @@ p
 
 Split by sample type:
 
-```{r show_leiden_tsne_2, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$SampleGroup))/2)*5}
+```{r show_leiden_tsne_2, eval=leidenOk, fig.width=2*5, fig.height=ceiling(nlevels(droplevels(sce$SampleGroup))/2)*5}
 # facet by sample group:
 p + facet_wrap(~ sce$SampleGroup)
 ```
@@ -1407,6 +1449,7 @@ Write SCE object to file.
 tmpFn <- str_glue("{projDir}/{outDirBit}/Robjects/{setName}_postDeconv{setSuf}{dsiSuf}_{splSetToGet2}_clust.Rds")
 print(tmpFn)
 saveRDS(sce, file=tmpFn)
+rm(tmpFn)
 ```
 
 ## Session information
