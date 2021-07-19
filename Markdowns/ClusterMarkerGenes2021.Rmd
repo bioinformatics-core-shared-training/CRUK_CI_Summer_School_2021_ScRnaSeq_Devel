@@ -362,7 +362,7 @@ On occasion, we might want to combine marker statistics from several testing reg
 In addition, `multiMarkerStats()` will compute a number of new statistics by combining the per-regime statistics. The combined `Top` value is obtained by simply taking the largest `Top` value across all tests for a given gene, while the reported `p.value` is obtained by taking the largest p-value. Ranking on either metric focuses on genes with robust differences that are highly ranked and detected by each of the individual testing regimes. Of course, this might be considered an overly conservative approach in practice, so it is entirely permissible to re-rank the DataFrame according to the Top or p.value for an individual regime (effectively limiting the use of the other regimes’ statistics to diagnostics only).
 
 
-# Challenge 
+# Exercise 
 Find marker genes for cluster 10.
 Find the challenge markdown for this section in the course materials folder.
 
