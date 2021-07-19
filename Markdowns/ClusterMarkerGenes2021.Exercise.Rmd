@@ -1,0 +1,56 @@
+---
+title: "CRUK CI Summer School 2021 - Introduction to single-cell RNA-seq analysis"
+subtitle: 'Cluster marker genes - Exercise'
+author: "Stephane Ballereau, Zeynep Kalender Atak"
+output:
+  html_document:
+    toc: yes
+---
+
+
+# Introduction
+
+In the course materials we focused on differential expression analysis of cluster 2. For this exercise we would like you to perform similar analysis for cluster 10. 
+
+
+
+## Load packages
+
+```{r libraries_preProc, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(scater)
+library(scran)
+library(dplyr)
+library(RColorBrewer)
+library(pheatmap)
+library(glue)
+```
+
+##  Load the data
+
+```{r}
+# load both sce objects
+uncorrected <- readRDS("../CourseMaterials/Robjects/DataIntergration_uncorrected.rds")
+corrected <- readRDS("../CourseMaterials/Robjects/caron_sce_nz_postDeconv_5hCellPerSpl_dsi_PBMMC_ETV6-RUNX1_clust.Rds")
+``` 
+
+## 1. Perform differential expression analysis 
+
+```{r}
+
+```
+
+
+## 2a. Visualize one of the marker genes using violin plot 
+
+```{r}
+
+```
+
+## 2b. Visualize one of the markers on tSNE plot 
+```{r}
+
+```
+
+## 3. Take top 5 genes from each pairwise comparison and create a heatmap (hint: use the `Top` field)
+
