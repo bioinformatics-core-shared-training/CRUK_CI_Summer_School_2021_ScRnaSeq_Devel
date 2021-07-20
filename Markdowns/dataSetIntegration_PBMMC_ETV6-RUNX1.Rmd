@@ -79,7 +79,7 @@ objects in a `large list` for ease of running the following steps but it is no d
 # dimRedForViz.Rmd writes _dimRed.Rds
 getwd()
 dir("..")
-sce <- readRDS("../Robjects/caron_postDeconv_5hCellPerSpl_dimRed.Rds")
+sce <- readRDS("./Robjects/caron_postDeconv_5hCellPerSpl_dimRed.Rds")
 
 #split.sce <- split(sce, sample(LETTERS, nrow(sce), replace=TRUE))
 x <- subset(sce, , SampleName=="ETV6-RUNX1_1")
@@ -88,12 +88,12 @@ sampleGroupToGet <- grep("PBMMC|ETV6-RUNX1", sampleGroupLevels, value = TRUE)
 all.sce <- lapply(sampleGroupToGet, function(x){ subset(sce, , SampleName==x) })
 names(all.sce) <- sampleGroupToGet
 
-saveRDS(all.sce, "../Robjects/DataIntegration_all_sce.rds")
+saveRDS(all.sce, "./Robjects/DataIntegration_all_sce.rds")
 ```
 
 
 ```{r load_PBMMC_ETV6-RUNX1, eval=FALSE}
-all.sce <- readRDS("../Robjects/DataIntegration_all_sce.rds")
+all.sce <- readRDS("./Robjects/DataIntegration_all_sce.rds")
 all.sce
 ```
 
@@ -127,14 +127,6 @@ tmpFn <- "/mnt/nas-data/bioinformatics/group_folders/baller01/20200511_Fernandes
 file.exists(tmpFn)
 x <- readRDS(tmpFn)
 x
-```
-
-<!-- sampleSheet noy used -->
-
-```{r, sampleSheet, message=FALSE, eval=FALSE}
-# samplesheet not used ?
-#sampleSheet <- read_tsv("sampleSheet_for_DI.tsv")
-samplesheet <- read_tsv("../CourseMaterials/Data/sample_sheet.tsv")
 ```
 
 We then apply the standard workflow to each sample separately:
@@ -188,7 +180,7 @@ To prepare for the batch correction:
 ```{r prep_universe_PBMMC_ETV6-RUNX1}
 allNames <- unlist(lapply(all.sce, function(x){rownames(x)}))
 allNamesNb <- table(allNames)
-universe <- names(allNamesNb)[allNamesNb==7] # where 7 is number of samples, or length(sampleGroupToGet)
+universe <- names(allNamesNb)[allNamesNb==7] # where 7 is number of samples
 ```
 
 * The size of this common “universe” of features here is the number of features shared by all 7 samples is: `r length(universe)`.
@@ -342,6 +334,9 @@ uncorrected <- do.call(cbind, rescaled)
 # copy choice to uncorrected SCE:
 all(rownames(combined.dec) == rownames(uncorrected))
 rowData(uncorrected) <- cbind(rowData(uncorrected), combined.dec)
+
+saveRDS(uncorrected, "./Robjects/DataIntegration_uncorrected.rds")
+
 ```
 
 <!-- plot variance decomposition data --> 
@@ -433,7 +428,7 @@ Of course, the other explanation for batch-specific clusters is that there are c
 Let us write out the corresponding SCE object.
 
 ```{r diagWriteRds_PBMMC_ETV6-RUNX1}
-saveRDS(uncorrected, "../Robjects/DataIntegration_uncorrected.rds")
+saveRDS(uncorrected, "./Robjects/DataIntegration_uncorrected.rds")
 ```
 
 ## Linear regression
@@ -800,14 +795,6 @@ heatE1 <- pheatmap(log10(tabE1 +10), cluster_rows = FALSE, cluster_cols = FALSE,
                    main = "ETV6-RUNX1_1")
 heatE1
 ```
-
-#### Challenge 2
-
-Can you draw the heatmaps for the other samples and decide if you think the correction looks satisfactory?
-
-Find the Challenge markdown for this section in the course material folder.
-
-
 
 The redistribution of cells from one set of clusters to another, here 'within-batch before' and 'across-batch after' correction, may also be visualized with a clustering tree [clustree](https://cran.r-project.org/package=clustree). See the Extra section at the end of this chapter.
  
