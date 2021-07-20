@@ -1,0 +1,357 @@
+---
+title: "CRUK CI Summer School 2021 - introduction to single-cell RNA-seq analysis"
+author: "Stephane Ballereau, Ashley Sawle"
+subtitle: Quality Control - Challenge
+output:
+  html_document:
+    toc: yes
+---
+
+```{r setup, echo=FALSE, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=TRUE)
+knitr::opts_chunk$set(fig.width=7, fig.height=7)
+knitr::opts_chunk$set(dev="CairoPNG")
+set.seed(123)
+```
+
+# Introduction
+
+In the course materials we performed QC and filtering of 2 samples from each
+of the sample groups. For this challenge we would like you to perform QC and 
+filtering on all of the samples from the Caron data set. 
+
+We have prepared a SingleCellExperiment object with the filtered count data
+from CellRanger already loaded. We have also already added the sample meta data
+and annotated the genes with their chromosome. Essentially, we have run all the
+steps up to and including section 6.0.1 in the course materials book.
+
+While running the QC and particularly the filtering, you should consider the 
+experimental set up and will need to decide on whether to apply the filters
+across all samples at once or whether you should separate the samples into 
+batches for the adaptive filters, and at what level the "batch" should be 
+defined.
+
+# Load packages
+
+```{r libraries_preProc}
+library(DropletUtils)
+library(scater)
+library(BiocParallel)
+library(tidyverse)
+library(patchwork)
+library(ggvenn)
+library(DT)
+```
+
+#  Load the data
+
+## Sample meta data
+
+We will load the Caron data sets. We have already prepared a sample
+meta data table that relates the sample/run ID to the sample group. This is the
+metadata for all samples from both data sets.
+
+```{r samplesheet_preProc, message=FALSE}
+samplesheet <- read_tsv("../Data/sample_sheet.tsv")
+```
+
+```{r samplesheet_display_preProc}
+samplesheet %>%
+	as.data.frame() %>%
+	datatable(rownames = FALSE, options = list(dom="tpl", nrows=20))
+```
+
+## The scRNAseq count data from CellRanger
+
+### Parallelisation
+
+We first need to first set up some parallel parameters using the package
+`BiocParallel`.
+
+```{r}
+bp.params <- MulticoreParam(workers = 7)
+```
+
+### Load the data
+
+```{r}
+sce <- readRDS("../Robjects/Caron_data.sce.annot.rds")
+```
+
+# QC
+
+## Check samples in the data set
+
+Use the `colData` function to check that the samples you have in the `sce` 
+object are the ones you are expecting (all of the Caron data set). Add your 
+code into the code chunk below.
+
+```{r}
+
+```
+
+For the purposes of visualisation we want to be able to distinguish between the
+two libraries for PBMMC_1. For this reason we have added suffixes "a" and "b".
+Later in we will remove these suffixes. In the downstream analyses will want the
+cells to be treated as having come from a single samples.
+
+# Filter undetected genes
+
+Although the count matrix has `r nrow(sce)` genes, many of these will not have
+been detected in any droplet. 
+
+What fraction of the genes are not detected?
+
+```{r detected_genes}
+
+```
+
+Remove these before proceeding in order to reduce the size of the single cell
+experiment object.
+
+```{r remove_undetected_genes}
+
+```
+
+# Quality control
+
+<!-- https://osca.bioconductor.org/quality-control.html -->
+
+We will look at three QC metrics:
+
+* **library size**
+* **number of expressed genes in each cell**
+* **proportion of UMIs mapped to genes in the mitochondrial genome**
+
+### Add per cell QC metrics
+
+Add the per cell QC metrics to the droplet annotation using the function
+`addPerCellQC`. In order to get the percentage of mitochondrial UMIs in each
+cell, your will need to pass the function a vector indicating which genes are
+mitochondrial.
+
+```{r qc_addPerCellQC}
+
+```
+
+Check that the function has added six columns to the droplet annotation:
+
+* **sum**: total UMI count
+* **detected**: number of features (genes) detected
+* **subsets_Mito_sum**: number of UMIs mapped to mitochondrial transcripts
+* **subsets_Mito_detected**: number of mitochondrial genes detected
+* **subsets_Mito_percent**: percentage of reads mapped to mitochondrial transcripts
+* **total**: also the total UMI count
+
+```{r qc_addPerCellQCTab}
+
+```
+
+## QC metric distribution
+
+Plot the distributions of the three metrics of interest for each sample. We have
+given you the code for the **library size**, you will need to modify this for 
+the other two metrics. Check the course materials if you need to figure out 
+which column to use.
+
+### Library Size
+
+```{r qc_libSize, fig.width=12, fig.height=4}
+plotColData(sce, x="Sample", y="sum",other_fields="SampleGroup") + 
+        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+        scale_y_log10() + 
+        ggtitle("Total count")
+```
+
+### Number of Genes detected
+
+```{r qc_detectedFeatures, fig.width=12, fig.height=4}
+
+
+```
+
+### Percentage of UMIs mapped to mitochondrial transcripts
+
+```{r qc_MTcontent, fig.width=12, fig.height=4}
+
+
+```
+
+# Identification of low-quality cells with adaptive thresholds
+
+First we will apply the adaptive threshold filtering across all samples
+together. We have given you the code for filtering the by library size, you will
+need to add the commands for filtering on the number of genes detected and the
+mitochondrial content (make sure you filter the correct tail of the 
+distribution).
+
+## Add the filters
+
+### Library Size
+
+```{r adapThreshold_librarySize}
+low_lib_size <- isOutlier(sce$sum, log=TRUE, type="lower")
+sce$low_lib_size <- low_lib_size
+```
+
+### Number of Genes detected
+
+```{r adapThreshold_detectedFeatures}
+
+```
+
+### Percentage of UMIs mapped to mitochondrial transcripts
+
+```{r adapThreshold_MTcontent}
+
+```
+
+## Visualise results
+
+Let's have a look at how these filters would affect the data set. Replace
+`XXXXXXX` with the appropriate column name from the `colData`.
+
+### Library Size
+
+```{r, fig.width=12, fig.height=4}
+plotColData(sce, 
+            x="Sample", 
+            y="sum",
+            other_fields="SampleGroup", 
+            colour_by = XXXXXXX) + 
+        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+        scale_y_log10() + 
+        labs(y = "Total count", title = "Total count") +
+        guides(colour=guide_legend(title="Discarded"))
+```
+
+### Number of Genes detected
+
+```{r, fig.width=12, fig.height=4}
+plotColData(sce, 
+            x="Sample", 
+            y="detected",
+            other_fields="SampleGroup", 
+            colour_by = XXXXXXX) + 
+        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+        scale_y_log10() + 
+        labs(y = "Genes detected", title = "Genes detected") +
+        guides(colour=guide_legend(title="Discarded"))
+```
+
+### Percentage of UMIs mapped to mitochondrial transcripts
+
+```{r, fig.width=12, fig.height=4}
+plotColData(sce, 
+            x="Sample", 
+            y="subsets_Mito_percent",
+            other_fields="SampleGroup", 
+            colour_by = XXXXXXX) + 
+        facet_wrap(~SampleGroup, nrow=1, scales = "free_x") + 
+        labs(y = "Percentage mitochondrial UMIs",
+             title = "Mitochondrial UMIs") +
+        guides(colour=guide_legend(title="High % mitochrondrial"))
+```
+
+# Considering experimental factors when filtering
+
+Based on the experimental design and the plots above, do you think applying the
+adaptive filtering across all the samples is appropriate?
+
+Perhaps a batched approach is more suitable. This time use the `quickPerCellQC`
+function to perform all three filters and add a parameter for the batch (this
+could be any column in the `colData` or you could add a new one).
+
+```{r quickPerCellQC_batch_compute}
+
+```
+
+The table below shows how the thresholds for each metric differ between the
+batch-wise analysis and the analysis using all samples. You'll need
+to replace `XXXXXXX` with the appropriate vector for the original filtering, and
+the appropriate slot of the `batch.reasons` object.
+
+```{r}
+all.thresholds <- tibble(`Batch`="All",
+       `Library Size`=attr(XXXXXXX, "thresholds")[1],
+       `Genes detected`=attr(XXXXXXX, "thresholds")[1],
+       `Mitochondrial UMIs`=attr(XXXXXXX, "thresholds")[2])
+
+
+tibble(`Batch`=names(attr(batch.reasons[[1]], "thresholds")[1,]),
+       `Library Size`=attr(batch.reasons$XXXXXXX, "thresholds")[1,],
+       `Genes detected`=attr(batch.reasons$XXXXXXX, "thresholds")[1,],
+       `Mitochondrial UMIs`=attr(batch.reasons$XXXXXXX, "thresholds")[2,]) %>% 
+    bind_rows(all.thresholds) %>% 
+    mutate(across(where(is.numeric), round, digits=2)) %>% 
+    datatable(rownames = FALSE)
+```
+
+# Filter the data
+
+Once you have decided how best to filter the data you should remove the 
+droplets that do not pass your criteria from the data set. 
+
+Exclude poor-quality cells from the SingleCellExperiment object and save the
+final object to the `results` directory for later use.
+
+```{r filter_cells}
+sce.Filtered <- sce[,!batch.reasons$discard]
+saveRDS(sce.Filtered, "../results/Caron_filtered.rds")
+```
+
+# Optional: Filter genes
+
+You may additionally wish to filter the genes further to remove very sparse
+genes (see section 12). Remember that you will need to recalculate the colData
+metrics, as some of them were calculated across all genes. Save this final
+object as _results/Caron_filtered_genes.rds_.
+
+```{r filter_genes}
+
+```
+
+Generate a table showing the number of genes removed
+
+```{r check_filter}
+
+```
+
+Filter the genes.
+
+```{r}
+
+```
+
+Replace the Cell metrics
+
+```{r}
+
+```
+
+# Modify the sample names for PBMMC_1
+
+Remove the suffix letters so that the droplets are assigned to the same sample
+- note that we can still distinguish the libraries based on the "SampleId" 
+column.
+
+```{r}
+colData(sce) <- colData(sce) %>%
+    as.data.frame() %>% 
+    mutate(across(Sample, str_remove, "[ab]$")) %>%
+    DataFrame()
+```
+
+# Export the final obect
+
+Write the object out to a file in the `results` directory  for later use.
+
+```{r}
+saveRDS(sce, "../results/Caron_filtered_genes.rds")
+```
+
+## Session information
+
+```{r}
+sessionInfo()
+```
