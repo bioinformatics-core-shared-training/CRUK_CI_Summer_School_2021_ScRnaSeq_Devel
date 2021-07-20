@@ -476,9 +476,9 @@ Save SCE object:
 
 ```{r}
 # save sce object to which we have added dimensionality reduction slots:
-tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_dimRed.Rds",
-		 projDir, outDirBit, setName, setSuf)
+tmpFn <- str_glue("{projDir}/{outDirBit}/{setName}_postDeconv{setSuf}_dimRed.Rds")
 saveRDS(sce, tmpFn)
+rm(tmpFn)
 ```
 
 ## Session information
