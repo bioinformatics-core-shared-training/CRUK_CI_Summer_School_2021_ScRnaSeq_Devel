@@ -1,18 +1,23 @@
-# Cluster marker genes
-
-```{r library_clusterMarkerGenes, warning=FALSE}
-library(ggplot2)
-library(scater)
-library(scran)
-library(dplyr)
-library(RColorBrewer)
-library(pheatmap)
-library(glue)
-```
+---
+title: "CRUK CI Summer School 2021 - Introduction to single-cell RNA-seq analysis"
+subtitle: 'Cluster marker genes'
+author: "Stephane Ballereau, Zeynep Kalender Atak"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    number_sections: true
+    code_folding: show
+  html_notebook:
+    code_folding: hide
+    toc: yes
+    toc_float: yes
+    number_sections: true
+---
 
 # Cluster marker genes {#clusterMarkerGenesTop}
 
-<img src="../../Images/Andrews2017_Fig1.png" style="margin:auto; display:block" />
+<img src="Images/Andrews2017_Fig1.png" style="margin:auto; display:block" />
 
 Source: we will follow the [OSCA chapter on marker detection](https://bioconductor.org/books/release/OSCA/marker-detection.html) (with some of its text copied here with little modification). See also the Hemberg group chapter on [differential analysis section](https://scrnaseq-course.cog.sanger.ac.uk/website/biological-analysis.html#dechapter).
 
@@ -32,48 +37,375 @@ Identification of marker genes is usually based around the retrospective detecti
 
 ## Load data
 
-We will load the R file keeping the SCE (SingleCellExperiment) object with the outcome of the clustering performed after feature selection and dimensionality reduction of the normalised counts for 500 cells per sample.
+`Always go back to RNA assay (or similar) for doing differential expression.`
 
-```{r}
-uncorrected <- readRDS("../CourseMaterials/Robjects/DataIntergration_uncorrected.rds")
-mnn.out <- readRDS("../CourseMaterials/Robjects/DataIntergration_mnn.out.rds")
+Altough it's tempting to use the corrected expression values for gene-based analyses like DE-based marker gene detection, his is not generally recommended. Batch correction algorithms are not obliged to preserve the magnitude (or even direction) of differences in per-gene expression when attempting to align multiple batches. For example, cosine normalization in `fastMNN()` shrinks the magnitude of the expression values so that the computed log-fold changes have no obvious interpretation. Of greater concern is the possibility that the correction introduces artificial agreement across batches. 
 
-mnn.out <- runUMAP(mnn.out, dimred="corrected")
+For this reason, we will use the uncorrected (normalized) expression values for marker gene identification between *clusters obtained after data integration*. 
 
-# copy clustering output to uncorrected SCE
-sce <- uncorrected
-x <- colData(mnn.out)[,c("Barcode","label")] %>% data.frame()
-colData(sce) <- colData(uncorrected) %>%
-  data.frame() %>%
-  dplyr::left_join(x, by="Barcode") %>%
-  DataFrame
-colData(sce)$cluster <- colData(sce)$label.y
-sce$clusterStg <- factor(paste0("c", sce$cluster),
-			 levels = paste0("c", levels(sce$cluster)))
-#rm(uncorrected)
+```{r library_clusterMarkerGenes, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(scater)
+library(scran)
+library(dplyr)
+library(RColorBrewer)
+library(pheatmap)
+library(glue)
 ```
-
-Number of cells: `r ncol(sce)`.
-
-Number of genes: `r nrow(sce)`.
+ 
+```{r}
+# load both sce objects
+uncorrected <- readRDS("../CourseMaterials/Robjects/DataIntergration_uncorrected.rds")
+corrected <- readRDS("../CourseMaterials/Robjects/caron_sce_nz_postDeconv_5hCellPerSpl_dsi_PBMMC_ETV6-RUNX1_clust.Rds")
+``` 
 
 ## Detecting genes differentially expressed between clusters
 
-The TSNE plots below show the structure observed with and without data set integration
-Cells colored by cluster:
 
-```{r, fig.height=0.5*figSize, fig.width=figSize}
-tsney <- plotTSNE(mnn.out, colour_by="label") 
-tsnex <- plotTSNE(sce, colour_by="clusterStg") 
-gridExtra::grid.arrange(tsney, tsnex, ncol=2)
+### Differential expression analysis
+
+For each cluster, we will identify genes whose expression differ to that of other clusters, for each pair of cluster, using `scran::findMarkers()`. The function fits a linear model to the log-expression values for each gene using limma [@doi:10.1093/nar/gkv007] and allows testing for differential expression in each cluster compared to the others while accounting for known, uninteresting factors.
+
+We will first identify genes whose average expression differ between clusters, using the Welch t-test (default) with a log-fold change
+threshold of 0 (default) and ranking genes based on the outcome of any of the pairwise comparisons (default).
+
+```{r}
+# Clusters called with igraph::cluster_walktrap() are named with digits.
+# We add a 'c' prefix (for-cluster) to avoid any confusion: these values are labels, not numerical values
+
+clusters.mnn <- factor(paste0("c",corrected$cluster.out.10))
+
+# run scran::findMarkers()
+# with default parameters for now
+# check the function's manual for details (?scran::findMarkers)
+# (the test.type and pval.type options are covered below)
+
+markers.out <- findMarkers(uncorrected, 
+                           groups=clusters.mnn, 
+                           block=uncorrected$block,
+                           row.data=rowData(uncorrected))
 ```
 
-Cells colored by sample name:
+The default philosophy of `findMarkers()` is to identify a combination of marker genes that - together - uniquely define one cluster against the rest. To this end, we collect the top DE genes from each pairwise comparison involving a particular cluster to assemble a set of candidate markers for that cluster. We will demonstrate on cluster 2; the relevant DataFrame contains log2-fold changes of expression in cluster 2 over each other cluster, along with several statistics obtained by combining p-values across the pairwise comparisons involving 2.
 
-```{r, fig.height=0.5*figSize, fig.width=figSize}
-p1 <- plotTSNE(mnn.out, colour_by="Sample.Name") 
-p2 <- plotTSNE(sce, colour_by="Sample.Name") 
-gridExtra::grid.arrange(p1, p2, ncol=2)
+```{r}
+c2_markers <- markers.out[["c2"]]
+colnames(c2_markers)
+```
+
+Of particular interest is the `Top` field. The set of genes with `Top ≤ X` is the union of the top `X` genes (ranked by p-value) from each pairwise comparison involving cluster 2. For example, the set of all genes with `Top` values of 1 contains the gene with the lowest p-value from each comparison. Similarly, the set of genes with `Top` values less than or equal to 10 contains the top 10 genes from each comparison. The `Top` field represents `findMarkers()`’s approach to consolidating multiple pairwise comparisons into a single ranking for each cluster; each DataFrame produced by `findMarkers()` will order genes based on the `Top` value by default.
+
+```{r}
+c2_markers[1:10,7:14]
+```
+
+We use the `Top` field to identify a set of genes that is guaranteed to distinguish cluster 2 from any other cluster. Here, we examine the top 6 genes from each pairwise comparison. Some inspection of the most upregulated genes suggest that cluster 2 contains monocytes, based on the expression of CST3 and CD3D. 
+
+```{r}
+c2_markers[c2_markers$Top <= 6,7:13]
+```
+
+Each DataFrame also contains several other statistics that may be of interest. The `summary.logFC` field provides a convenient summary of the direction and effect size for each gene, and is defined here as the log-fold change from the comparison with the lowest p-value. The `p.value` field contains the combined p-value that is obtained by applying Simes’ method to the pairwise p-values for each gene and represents the evidence against the joint null hypothesis, i.e., that the gene is not DE between cluster 2 and any other cluster. Examination of these statistics permits a quick evaluation of the suitability of a candidate marker; if both of these metrics are poor (small log-fold change, large p-value), the gene can most likely be dismissed.
+
+### Tweaking differential expression analysis 
+
+#### Focusing on upregulated genes 
+
+Our previous `findMarkers()` call considers both up- and downregulated genes to be potential markers. However, downregulated genes are less appealing as markers as it is more difficult to interpret and experimentally validate an absence of expression. To focus on up-regulated markers, we can instead perform a one-sided t-test to identify genes that are upregulated in each cluster compared to the others. This is achieved by setting `direction="up"` in the `findMarkers()` call.
+
+```{r}
+markers_up.out <- findMarkers(uncorrected, 
+                           groups=clusters.mnn, 
+                           block=uncorrected$block,
+                           row.data=rowData(uncorrected),
+                           direction="up")
+```
+
+```{r}
+c2_up_markers <- markers_up.out[["c2"]]
+c2_up_markers[c2_up_markers$Top <= 6,7:13]
+```
+
+#### Using log-fold changes 
+
+The t-test also allows us to specify a non-zero log-fold change as the null hypothesis. This allows us to consider the magnitude of the log-fold change in our p-value calculations, in a manner that is more rigorous than simply filtering directly on the log-fold changes (McCarthy and Smyth 2009). (Specifically, a simple threshold does not consider the variance and can enrich for genes that have both large log-fold changes and large variances.) We perform this by setting `lfc=` in our `findMarkers()` call - when combined with `direction=`, this tests for genes with log-fold changes that are significantly greater than 1:
+
+```{r}
+markers_up_lfc1.out <- findMarkers(uncorrected, 
+                           groups=clusters.mnn, 
+                           block=uncorrected$block,
+                           row.data=rowData(uncorrected),
+                           direction="up",
+                           lfc=1)
+```
+
+These two settings yield a more focused set of candidate marker genes that are upregulated in cluster 2.
+```{r}
+c2_up_lfc1_markers <- markers_up_lfc1.out[["c2"]]
+c2_up_lfc1_markers[c2_up_lfc1_markers$Top <= 6,7:13]
+```
+
+Of course, this increased stringency is not without cost. If only upregulated genes are requested from findMarkers(), any cluster defined by downregulation of a marker gene will not contain that gene among the top set of features in its DataFrame. This is occasionally relevant for subtypes or other states that are distinguished by high versus low expression of particular genes. Similarly, setting an excessively high log-fold change threshold may discard otherwise useful genes. For example, a gene upregulated in a small proportion of cells of a cluster will have a small log-fold change but can still be an effective marker if the focus is on specificity rather than sensitivity.
+
+#### Finding cluster-specific markers
+
+By default, `findMarkers()` will give a high ranking to genes that are differentially expressed in any pairwise comparison. This is because a gene only needs a very low p-value in a single pairwise comparison to achieve a low Top value. A more stringent approach would only consider genes that are differentially expressed in all pairwise comparisons involving the cluster of interest. To achieve this, we set `pval.type="all"` in `findMarkers()` to use an intersection-union test (Berger and Hsu 1996) where the combined p-value for each gene is the maximum of the p-values from all pairwise comparisons. A gene will only achieve a low combined p-value if it is strongly DE in all comparisons to other clusters.
+
+```{r}
+markers_up_pval_all.out <- findMarkers(uncorrected, 
+                           groups=clusters.mnn, 
+                           block=uncorrected$block,
+                           row.data=rowData(uncorrected),
+                           direction="up",
+                           pval.type="all")
+```
+
+```{r}
+c2_up_pval_all_markers <- markers_up_pval_all.out[["c2"]]
+c2_up_pval_all_markers [1:10,7:13]
+```
+
+### Visualization of marker genes
+
+#### Violin plot
+
+```{r}
+plotExpression(uncorrected,
+               x=I(factor(corrected$cluster.out.10)),
+               features="ENSG00000101439", # "CST3",
+               colour_by="block") +
+  facet_wrap(~colour_by) 
+```
+
+#### Heatmap 
+
+**Using log-fold changes**
+As for bulk RNA, differences in expression profiles of the top genes can be visualised with a heatmap. 
+
+```{r}
+# select some top genes:
+#c2_up_lfc1_markers <- markers_up_lfc1.out[["c2"]]
+
+c2_top10 <- rownames(c2_up_lfc1_markers)[c2_up_lfc1_markers$Top <= 10]
+
+#c2_top10_logFCs <- getMarkerEffects(c2_top10)
+
+#pheatmap(c2_top10_logFCs, breaks=seq(-5, 5, length.out=101))
+```
+
+**Using normalized counts**
+
+This requires some data wrangling and is not straightforward. 
+
+<details>
+  <summary>Click to expand!</summary>
+  
+```{r}
+# have matrix to annotate sample with cluster and sample:
+tmpData <- logcounts(uncorrected)[c2_top10,]
+
+# concat sample and barcode names to make unique name across the whole data set
+tmpCellNames <- paste(colData(uncorrected)$Sample.Name, colData(uncorrected)$Barcode, sep="_")
+# use these to namecolumn of matrix the show as heatmap:
+colnames(tmpData) <- tmpCellNames # colData(sce)$Barcode         
+
+# columns annotation with cell name:
+mat_col <- data.frame(cluster = corrected$cluster.out.10,
+		      sample = uncorrected$Sample.Name,
+		      type = uncorrected$source_name
+		)
+rownames(mat_col) <- colnames(tmpData)
+rownames(mat_col) <- tmpCellNames # colData(sce)$Barcode
+
+# Prepare colours for clusters:
+colourCount = length(unique(corrected$cluster.out.10))
+getPalette = colorRampPalette(brewer.pal(10, "Set3"))
+
+mat_colors <- list(group = getPalette(colourCount))
+names(mat_colors$group) <- unique(corrected$cluster.out.10)
+
+breaksVec = seq(-5, 5, by = 0.1)
+
+# order normalized expression matrix based on clustering 
+tmpData<-tmpData[,rownames(mat_col[order(mat_col$cluster),])]
+
+# plot heatmap:
+pheatmap(tmpData,
+           border_color      = NA,
+           show_colnames     = FALSE,
+           #show_rownames     = FALSE,
+           show_rownames     = TRUE,
+           drop_levels       = TRUE,
+           labels_row        = rowData(uncorrected)[rownames(tmpData),"Symbol"],
+           annotation_col    = mat_col,
+           cluster_cols = FALSE, 
+           annotation_colors = mat_colors,
+           color             = colorRampPalette(
+             rev(brewer.pal(n = 7,
+                            name = "RdYlBu")))(length(breaksVec)),
+           breaks            = breaksVec,
+	   fontsize_row      = 7
+           )
+```
+  
+</details>
+
+```{r, echo=FALSE}
+pheatmap(tmpData,
+           border_color      = NA,
+           show_colnames     = FALSE,
+           #show_rownames     = FALSE,
+           show_rownames     = TRUE,
+           drop_levels       = TRUE,
+           labels_row        = rowData(uncorrected)[rownames(tmpData),"Symbol"],
+           annotation_col    = mat_col,
+           cluster_cols = FALSE, 
+           annotation_colors = mat_colors,
+           color             = colorRampPalette(
+             rev(brewer.pal(n = 7,
+                            name = "RdYlBu")))(length(breaksVec)),
+           breaks            = breaksVec,
+	   fontsize_row      = 7
+           )
 ```
 
 
+#### tSNE and UMAP 
+We can use the `corrected` sce object for plotting expression of a gene on tSNE and UMAP plots. This can be more aesthetically pleasing than uncorrected expression values that may contain large shifts on the colour scale between cells in different batches. Use of the corrected values in any quantitative procedure should be treated with caution, and should be backed up by similar results from an analysis on the uncorrected values.
+
+```{r}
+plotTSNE(corrected, colour_by="CST3", by_exprs_values = "reconstructed")
+
+corrected<-runUMAP(corrected, dimred="corrected")
+plotUMAP(corrected, colour_by="CST3", by_exprs_values = "reconstructed")
+
+```
+
+
+## Alternative Testing Strategies 
+
+### Using the Wilcoxon rank sum test
+The Wilcoxon rank sum test (also known as the Wilcoxon-Mann-Whitney test, or WMW test) is another widely used method for pairwise comparisons between groups of observations. Its strength lies in the fact that it directly assesses separation between the expression distributions of different clusters. The WMW test statistic is proportional to the area-under-the-curve (AUC), i.e., the concordance probability, which is the probability of a random cell from one cluster having higher expression than a random cell from another cluster. In a pairwise comparison, AUCs of 1 or 0 indicate that the two clusters have perfectly separated expression distributions. Thus, the WMW test directly addresses the most desirable property of a candidate marker gene, while the t-test only does so indirectly via the difference in the means and the intra-group variance.
+
+We perform WMW tests by again using the `findMarkers()` function, this time with `test="wilcox"`. This returns a list of DataFrames containing ranked candidate markers for each cluster. The `direction=`, `lfc=` and `pval.type=` arguments can be specified and have the same interpretation as described for t-tests. We demonstrate below by detecting upregulated genes in each cluster with `direction="up"`.
+
+```{r}
+markers_wilcox.out <- findMarkers(uncorrected, 
+                           groups=clusters.mnn, 
+                           block=uncorrected$block,
+                           test="wilcox",
+                           direction="up",
+                           row.data=rowData(uncorrected))
+```
+
+To explore the results in more detail, we focus on the DataFrame for cluster 2. The interpretation of Top is the same as described for t-tests, and Simes’ method is again used to combine p-values across pairwise comparisons. If we want more focused sets, we can also change pval.type= as previously described.
+
+```{r}
+c2_wilcox_markers <- markers_wilcox.out[["c2"]]
+head(c2_wilcox_markers)
+```
+
+The DataFrame contains the AUCs from comparing cluster 2 to every other cluster. A value greater than 0.5 indicates that the gene is upregulated in the current cluster compared to the other cluster, while values less than 0.5 correspond to downregulation. We would typically expect AUCs of 0.7-0.8 for a strongly upregulated candidate marker.
+
+```{r}
+#c2_AUCs <- getMarkerEffects(c2_wilcox_markers[c2_wilcox_markers$Top<=5,], prefix="AUC")
+
+#rownames(c2_AUCs) <- rowData(uncorrected)[rownames(c2_AUCs), "Symbol"]
+
+#pheatmap(c2_AUCs,
+#	 breaks = seq(0, 1, length.out=21),
+#	 color = viridis::viridis(21))
+```
+
+##  Using a binomial test
+
+The binomial test identifies genes that differ in the proportion of expressing cells between clusters. (For the purposes of this section, a cell is considered to express a gene simply if it has non-zero expression for that gene.) This represents a much more stringent definition of marker genes compared to the other methods, as differences in expression between clusters are effectively ignored if both distributions of expression values are not near zero. The premise is that genes are more likely to contribute to important biological decisions if they were active in one cluster and silent in another, compared to more subtle “tuning” effects from changing the expression of an active gene. From a practical perspective, a binary measure of presence/absence is easier to validate.
+
+We perform pairwise binomial tests between clusters using the `findMarkers()` function with `test="binom"`. This returns a list of DataFrames containing marker statistics for each cluster such as the Top rank and its p-value. Here, the effect size is reported as the log-fold change in this proportion between each pair of clusters. Large positive log-fold changes indicate that the gene is more frequently expressed in one cluster compared to the other. We focus on genes that are upregulated in each cluster compared to the others by setting `direction="up"`.
+
+```{r}
+markers_binom.out <- findMarkers(uncorrected, 
+                           groups=clusters.mnn, 
+                           block=uncorrected$block,
+                           test="binom",
+                           direction="up",
+                           row.data=rowData(uncorrected))
+```
+
+```{r}
+c2_binom_markers <- markers_binom.out[["c2"]]
+```
+
+The plot below confirms that the top genes exhibit strong differences in the proportion of expressing cells in cluster 9 compared to the others.
+
+
+```{r}
+top.genes <- head(rownames(c2_binom_markers))
+#plotExpression(sce, x="clusterStg", features=top.genes)
+plotExpression(uncorrected, x=I(factor(corrected$cluster.out.10)),
+               colour_by=I(factor(corrected$cluster.out.10)),
+               features=top.genes[1:4] )
+```
+
+## Combining multiple marker statistics
+
+On occasion, we might want to combine marker statistics from several testing regimes into a single DataFrame. This allows us to easily inspect multiple statistics at once to verify that a particular gene is a strong candidate marker. For example, a large AUC from the WMW test indicates that the expression distributions are well-separated between clusters, while the log-fold change reported with the t-test provides a more interpretable measure of the magnitude of the change in expression. We use the `multiMarkerStats()` to merge the results of separate `findMarkers()` calls into one DataFrame per cluster, with statistics interleaved to facilitate a direct comparison between different test regimes.
+
+```{r}
+#combined <- multiMarkerStats(
+#    t=findMarkers(uncorrected, groups=clusters.mnn, direction="up", block=uncorrected$block),
+#    wilcox=findMarkers(uncorrected, groups=clusters.mnn, test="wilcox", direction="up", block=uncorrected$block),
+#    binom=findMarkers(uncorrected, groups=clusters.mnn, test="binom", direction="up", block=uncorrected$block)
+#)
+```
+
+In addition, `multiMarkerStats()` will compute a number of new statistics by combining the per-regime statistics. The combined `Top` value is obtained by simply taking the largest `Top` value across all tests for a given gene, while the reported `p.value` is obtained by taking the largest p-value. Ranking on either metric focuses on genes with robust differences that are highly ranked and detected by each of the individual testing regimes. Of course, this might be considered an overly conservative approach in practice, so it is entirely permissible to re-rank the DataFrame according to the Top or p.value for an individual regime (effectively limiting the use of the other regimes’ statistics to diagnostics only).
+
+
+# Exercise 
+Find marker genes for cluster 10.
+Find the challenge markdown for this section in the course materials folder.
+
+1. Visualize one of the top marker genes in a violin and tSNE plot. 
+
+2. Take top 5 genes from each pairwise comparison and create a heatmap (hint: use the `Top` field)
+
+# Extra Material 
+<details>
+<summary> Click to reveal </summary>
+## Invalidity of p-values
+
+### From data snooping
+
+All of our DE strategies for detecting marker genes between clusters are statistically flawed to some extent. The DE analysis is performed on the same data used to obtain the clusters, which represents “data dredging” (also known as fishing or data snooping). The hypothesis of interest - are there differences between clusters? - is formulated from the data, so we are more likely to get a positive result when we re-use the data set to test that hypothesis.
+
+The practical effect of data dredging is best illustrated with a simple simulation. We simulate i.i.d. normal values, perform k-means clustering and test for DE between clusters of cells with findMarkers(). The resulting distribution of p-values is heavily skewed towards low values. Thus, we can detect “significant” differences between clusters even in the absence of any real substructure in the data. This effect arises from the fact that clustering, by definition, yields groups of cells that are separated in expression space. Testing for DE genes between clusters will inevitably yield some significant results as that is how the clusters were defined.
+
+Distribution of $p$-values from a DE analysis between two clusters in a simulation with no true subpopulation structure:
+
+```{r}
+library(scran)
+set.seed(0)
+y <- matrix(rnorm(100000), ncol=200)
+clusters <- kmeans(t(y), centers=2)$cluster
+out <- findMarkers(y, clusters)
+hist(out[[1]]$p.value, col="grey80", xlab="p-value")
+```
+
+For marker gene detection, this effect is largely harmless as the p-values are used only for ranking. However, it becomes an issue when the p-values are used to define “significant differences” between clusters with respect to an error rate threshold. Meaningful interpretation of error rates require consideration of the long-run behavior, i.e., the rate of incorrect rejections if the experiment were repeated many times. The concept of statistical significance for differences between clusters is not applicable if clusters and their interpretations are not stably reproducible across (hypothetical) replicate experiments.
+
+### Nature of replication
+
+The naive application of DE analysis methods will treat counts from the same cluster of cells as replicate observations. This is not the most relevant level of replication when cells are derived from the same biological sample (i.e., cell culture, animal or patient). DE analyses that treat cells as replicates fail to properly model the sample-to-sample variability (Lun and Marioni 2017). The latter is arguably the more important level of replication as different samples will necessarily be generated if the experiment is to be replicated. Indeed, the use of cells as replicates only masks the fact that the sample size is actually one in an experiment involving a single biological sample. This reinforces the inappropriateness of using the marker gene p-values to perform statistical inference.
+
+"We strongly recommend selecting some markers for use in validation studies with an independent replicate population of cells. A typical strategy is to identify a corresponding subset of cells that express the upregulated markers and do not express the downregulated markers. Ideally, a different technique for quantifying expression would also be used during validation, e.g., fluorescent in situ hybridisation or quantitative PCR. This confirms that the subpopulation genuinely exists and is not an artifact of the scRNA-seq protocol or the computational analysis."
+
+See the OSCA chapter on [Marker gene detection](https://osca.bioconductor.org/clustering.html)
+
+<\details>
+
+## Session information
+
+```{r sessionInfo_dsi{{setSuf}}_PBMMC_ETV6-RUNX1}
+sessionInfo()
+```

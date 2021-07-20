@@ -1,0 +1,36 @@
+---
+title: "Feature Selection and Dimensionality Reduction"
+author: "Zeynep Kalender-Atak"
+date: '26.07.2021'
+output:
+  ioslides_presentation:
+    widescreen: true
+    smaller: true
+    logo: Images/crukcc-transparent-small.png
+    css: css/stylesheet.css
+---
+## Single Cell RNAseq Analysis Workflow
+
+```{r echo=FALSE, out.width='80%', fig.align='center'}
+knitr::include_graphics('Images/workflow.svg')
+```
+
+## Why dimensionality reduction?
+
+* Simplify complexity, so it becomes easier to work with (reduce the number of features/genes).
+
+* Remove redundancies in the data
+
+* Identify the most relevant information (find and filter noise)
+
+* Reduce computational time for downstream procedures
+
+* Facilitate clustering, since some algorithms struggle with too many dimensions
+
+* Data visualization 
+
+## There are many dimensionality reduction algorithms 
+
+```{r echo=FALSE, out.width= "85%", fig.align='center'}
+knitr::include_graphics('Images/dim_red_algorithms.png')
+```

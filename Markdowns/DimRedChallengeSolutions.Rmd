@@ -1,0 +1,49 @@
+---
+title: "Dimensionality Reduction Challenge - Solutions"
+author: "eynep Kalender Atak"
+date: "07/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(scater)
+library(scran)
+```
+
+## Loading the data you need
+
+
+```{r Load}
+sce <- readRDS("../Robjects/caron_postDeconv_5hCellPerSpl.Rds")
+```
+
+## Challenge 1
+
+Select top 2000 highly variable genes, calculate PCs and identify PCs linked to biological variation (using denoisePCA command). How many PCs remain after denoising? 
+
+```{r yourCode1}
+dec.sce <- modelGeneVar(sce)
+hvgs <- getTopHVGs(dec.sce, n=2000)
+
+sce <- runPCA(sce,subset_row=hvgs)
+
+var.fit <- metadata(dec.sce)
+sce <- denoisePCA(sce, technical=var.fit$trend, assay.type="logcounts")
+ncol(reducedDim(sce))
+```
+
+## Challenge 2
+
+Can you plot t-SNE and UMAP with your chosen PCs.  
+
+```{r yourCode2}
+sce <- runTSNE(sce, dimred="PCA",perplexity=50, rand_seed=123)
+
+plotTSNE(sce, colour_by="Sample",size_by="sum") 
+
+set.seed(123)
+sce <- runUMAP(sce, dimred="PCA")
+plotUMAP(sce,colour_by="Sample")
+```
+
