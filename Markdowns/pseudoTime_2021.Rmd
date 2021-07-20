@@ -1,19 +1,18 @@
 ---
 title: "CRUK CI Summer School 2021"
 subtitle: 'Pseudotime Analysis'
-
 author: "Zeynep Kalender-Atak, Stephane Ballereau"
 output:
-  html_notebook:
-    code_folding: show
-    toc: yes
-    toc_float: yes
-    number_sections: true
   html_document:
     df_print: paged
     toc: yes
     number_sections: true
     code_folding: show
+  html_notebook:
+    code_folding: show
+    toc: yes
+    toc_float: yes
+    number_sections: true
   html_book:
     code_folding: show
 ---
