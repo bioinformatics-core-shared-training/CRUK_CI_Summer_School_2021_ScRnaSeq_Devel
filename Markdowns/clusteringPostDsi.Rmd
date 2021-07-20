@@ -16,24 +16,29 @@ output:
     self_contained: yes
     fig_width: 6
     fig_height: 4
+  pdf_document:
+    toc: yes
+    toc_depth: '5'
 subtitle: Clustering
 params:
-  projDir: "/ssd/personal/baller01/20200511_FernandesM_ME_crukBiSs2020"
-  dirRel: ".."
-  inpDirBit: "AnaWiSce/Ana1"
-  outDirBit: "AnaWiSce/Ana1"
-  bookType: "mk"
-  cacheBool: FALSE  
-  setName: "caron"
-  splSetToGet: "PBMMC,ETV6-RUNX1"
-  setSuf: '_5hCellPerSpl'
-  dsiSuf: '_dsi'
+  projDir: /home/ubuntu/Course_Materials/scRNAseq
+  dirRel: '..'
+  inpDirBit: '.'
+  outDirBit: '.'
+  bookType: mk
+  cacheBool: no
+  setName: caron
+  splSetToGet: PBMMC,ETV6-RUNX1
+  setSuf: _5hCellPerSpl
+  dsiSuf: _dsi
 ---
 
 <!--
   setSuf: '_allCells'
 source /home/baller01/.local/share/r-miniconda/bin/activate r-reticulate
 source /home/baller01/.local/share/r-miniconda/bin/deactivate r-reticulate
+  inpDirBit: AnaWiSce/Ana1
+  outDirBit: AnaWiSce/Ana1
 -->
 
 ```{r, include=FALSE, eval=TRUE}
@@ -79,14 +84,10 @@ splSetVec <- unlist(strsplit(splSetToGet, ",")) # params may not be read in if k
 splSetToGet2 <- gsub(",", "_", splSetToGet)
 nbPcToComp <- 50
 figSize <- 7
-
-anaStg <- sprintf("%s%s", splSetToGet2, setSuf)
-anaStg <- gsub("_", "-", anaStg)
-
 ```
 
-```{r clusPostDsi_Caron.knitr_options, echo=FALSE, results="hide", message=FALSE, dev="CairoPNG"}
-	# chunk name would need to be dynamic, eg {{anaStg}} and expand
+```{r clusPostDsi_Caron.knitr_options, echo=FALSE, results="hide", message=FALSE}
+#, dev="CairoPNG
 require(knitr)
 
 # if X11 is not available, add:
@@ -95,9 +96,9 @@ require(knitr)
 # opts_chunk$set(dev="CairoPNG")
 # library(Cairo)
 
-options(bitmapType='cairo') # if X11 is not available
-opts_chunk$set(dev="CairoPNG") # if X11 is not available
-library(Cairo) # if X11 is not available
+##options(bitmapType='cairo') # if X11 is not available
+##opts_chunk$set(dev="CairoPNG") # if X11 is not available
+##library(Cairo) # if X11 is not available
 
 # Set some variables:
 opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, cache=cacheBool)
@@ -124,6 +125,7 @@ library(bluster) # for clustering
 library(dynamicTreeCut)
 library(cluster) # for silhouette
 library(igraph) # for graph-based clustering and plotting networks 
+library(reticulate)
 library(leiden) # for community detection
 library(pheatmap)
 library(glue)
@@ -152,44 +154,18 @@ We will load the R file keeping the SCE (SingleCellExperiment) object with the n
 -->
 
 ```{r}
-#setName <- "caron"
-#setSuf <- "_5hCellPerSpl"
-#setSuf <- "" # dev with 1k/spl, should be _1kCellPerSpl
-#setSuf <- "_allCells" # dev with 1k/spl, should be _1kCellPerSpl
-
-# need library size
-# all sample types
-#tmpFn <- sprintf("%s/%s/Robjects/%s_postDeconv%s.Rds", projDir, outDirBit, setName, setSuf)
-#if(!file.exists(tmpFn))
-#{
-#	knitr::knit_exit()
-#}
-#sce0 <- readRDS(tmpFn)
-
-getwd()
-dir('..')
-dir("../Robjects/")
 sce0 <- readRDS("../Robjects/caron_postDeconv_5hCellPerSpl.Rds")
-
 
 # Read mnn.out object in:
 # only sample types in splSetToGet2
 splSetToGet2 <- gsub(",", "_", splSetToGet)
 
-#tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_dsi_%s.Rds",
-#		projDir, outDirBit, setName, setSuf, splSetToGet2)
-#print(tmpFn)
-#if(!file.exists(tmpFn))
-#{
-#	knitr::knit_exit()
-#}
-#sce <- readRDS(tmpFn) # ex mnn.out
+sce <- readRDS("../Robjects/DataIntegration_mnn.out.rds") # auto.merge
 
-sce <- readRDS("../Robjects/DataIntegration_mnn.out.rds")
-
-#sce2 <- readRDS(tmpFn) # ex mnn.out
-#rownames(sce) <- rownames(sce2)
 rowData(sce) <- cbind(rowData(sce0)[rownames(sce),], rowData(sce)) %>% DataFrame
+
+# tidy:
+rm(sce0)
 ```
 
 Number of cells: `r ncol(sce)`.
@@ -236,8 +212,6 @@ knitr::include_graphics("../Images/bioCellGenHierar2.png")
     + returns partitions at all levels along the dendrogram
 * Cons:
     + computationally expensive in time and memory that increase proportionally to the square of the number of data points
-
-`r #knitr::knit_exit()`
 
 #### Clustering
 
@@ -601,13 +575,6 @@ best.k <- cluster::maxSE(gapsTab[, "gap"], gapsTab[, "SE.sim"])
 
 The "optimal" k value is `r best.k`.
 
-```{r}
-# try other method to choose best k:
-##best.k <- cluster::maxSE(gapsTab[, "gap"], gapsTab[, "SE.sim"], method="Tibs2001SEmax")
-##best.k <- cluster::maxSE(gapsTab[, "gap"], gapsTab[, "SE.sim"], method="firstmax")
-##best.k
-```
-
 We next copy the cluster assignment to the SCE object.
 
 ```{r copy_k10}
@@ -656,10 +623,7 @@ One may also use multiple metrics rather than only one and check how they concor
 ```{r NbClust_run, eval=TRUE}
 # run only once and save outcome to file to load later.
 
-#tmpFn <- sprintf("%s/%s/Robjects/%s_sce_nz_postDeconv%s_500CellK2to20NbClust.Rds",
-#                 projDir, outDirBit, setName, setSuf)
 tmpFn <- str_glue("{projDir}/{outDirBit}/Robjects/{setName}_postDeconv{setSuf}_500CellK2to20NbClust.Rds")
-tmpFn
 if(file.exists(tmpFn))
 {
 	nb <- readRDS(file=tmpFn)
